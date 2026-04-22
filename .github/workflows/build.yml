@@ -33,6 +33,7 @@ jobs:
           dotnet publish Timer/Timer.csproj
           -c ${{ env.CONFIGURATION }}
           -p:Platform=x64
+          -p:CIBuild=true
           -o sharp/modules/Timer
           --no-restore
 

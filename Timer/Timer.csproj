@@ -61,7 +61,7 @@
 	  <CheckForOverflowUnderflow>True</CheckForOverflowUnderflow>
 	</PropertyGroup>
 
-	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
+	<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(CIBuild)' != 'true'">
 		<Exec Command="if $(ConfigurationName) == Debug (&#xD;&#xA;xcopy /i /e /s /y /f  &quot;$(ProjectDir)$(OutDir)\*&quot; &quot;$(cs2)\game\sharp\modules\Timer\Timer&quot;&#xD;&#xA;)&#xD;&#xA;" />
 	</Target>
 
