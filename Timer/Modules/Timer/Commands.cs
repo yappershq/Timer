@@ -14,7 +14,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
- 
+
 using Sharp.Shared.Enums;
 using Sharp.Shared.Types;
 using Sharp.Shared.Units;
@@ -107,9 +107,9 @@ internal partial class TimerModule
 
         var track = _timerInfo[slot]?.Track ?? 0;
 
-        StopTimer(slot);
-
         _zoneModule.TeleportToZone(pawn, track, EZoneType.End);
+
+        _bridge.ModSharp.InvokeFrameAction(() => { StopTimer(slot); });
 
         return ECommandAction.Handled;
     }
@@ -144,8 +144,6 @@ internal partial class TimerModule
             return ECommandAction.Handled;
         }
 
-        StopTimer(slot);
-
         // Stage 1 = start zone
         if (stage == 1)
         {
@@ -155,6 +153,8 @@ internal partial class TimerModule
         {
             _zoneModule.TeleportToStage(pawn, track, stage);
         }
+
+        _bridge.ModSharp.InvokeFrameAction(() => { StopTimer(slot); });
 
         return ECommandAction.Handled;
     }

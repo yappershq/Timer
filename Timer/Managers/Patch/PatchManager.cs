@@ -34,12 +34,14 @@ internal class PatchManager : IManager, IPatchManager
 
         _patches.Add(new MemoryPatch(nativeAddress, originalBytes));
 
-        // TODO: save original access
-        _bridge.ModSharp.SetMemoryAccess(nativeAddress, size, MemoryAccess.Read | MemoryAccess.Write | MemoryAccess.Execute);
+        _bridge.ModSharp.SetMemoryAccess(nativeAddress,
+                                         size,
+                                         MemoryAccess.Read | MemoryAccess.Write | MemoryAccess.Execute,
+                                         out var originalAccess);
 
         patchBytes.CopyTo(new Span<byte>(address, size));
 
-        _bridge.ModSharp.SetMemoryAccess(nativeAddress, size, MemoryAccess.Read | MemoryAccess.Execute);
+        _bridge.ModSharp.SetMemoryAccess(nativeAddress, size, originalAccess);
 
         _logger.LogInformation("Applied patch: {Description} at 0x{Address:X} ({Size} bytes)", description, (ulong)nativeAddress, size);
     }
