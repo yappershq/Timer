@@ -172,11 +172,10 @@ internal class PlayerManager : IManager, IPlayerManager, IClientListener
         {
             try
             {
-                _logger.LogInformation("Getting profile");
-                var profile = await RetryHelper.RetryAsync(
-                    () => _requestManager.GetPlayerProfile(steamId, name),
-                    RetryHelper.IsTransient, _logger, "GetPlayerProfile"
-                ).ConfigureAwait(false);
+                var profile = await RetryHelper.RetryAsync(() => _requestManager.GetPlayerProfile(steamId, name),
+                                                           RetryHelper.IsTransient,
+                                                           _logger,
+                                                           "GetPlayerProfile").ConfigureAwait(false);
 
                 await _bridge.ModSharp.InvokeFrameActionAsync(() =>
                 {

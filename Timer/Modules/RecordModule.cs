@@ -353,12 +353,11 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
                                     {
                                         try
                                         {
-                                            _logger.LogWarning("Getting record for {steamid}", steamId);
-
-                                            var records = await RetryHelper.RetryAsync(
-                                                () => _request.GetPlayerRecords(steamId, mapName),
-                                                RetryHelper.IsTransient, _logger, "GetPlayerRecords"
-                                            ).ConfigureAwait(false);
+                                            var records = await RetryHelper
+                                                                .RetryAsync(() => _request.GetPlayerRecords(steamId, mapName),
+                                                                            RetryHelper.IsTransient,
+                                                                            _logger,
+                                                                            "GetPlayerRecords").ConfigureAwait(false);
 
                                             var stageRecords = await RetryHelper.RetryAsync(
                                                 () => _request.GetPlayerStageRecords(steamId, mapName),

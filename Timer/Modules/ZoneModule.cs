@@ -103,8 +103,9 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
         }
 
         var targetName = entity.Name;
-
+#if DEBUG
         _logger.LogInformation("Entity {classname} spawned with name {targetname}", entity.Classname, targetName);
+#endif
 
         if (string.IsNullOrEmpty(targetName) || string.IsNullOrWhiteSpace(targetName))
         {
@@ -120,7 +121,9 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
         if (AddPrebuiltZone(entity, targetName, EZoneType.Start) || AddPrebuiltZone(entity, targetName, EZoneType.End))
         {
             CreateBeam(entity.Handle);
+#if DEBUG
             _logger.LogInformation("Added prebuilt zone: {name}", targetName);
+#endif
 
             entity.SetNetVar("m_flWait", TimerConstants.TickInterval);
 
@@ -129,8 +132,9 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
 
         if (AddPrebuiltZone(entity, targetName, EZoneType.Stage) || AddPrebuiltZone(entity, targetName, EZoneType.Checkpoint))
         {
+#if DEBUG
             _logger.LogInformation("Added prebuilt zone: {name}", targetName);
-
+#endif
             entity.SetNetVar("m_flWait", TimerConstants.TickInterval);
 
             return;
@@ -620,11 +624,13 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
                 info.TeleportAngles = ent.GetAbsAngles();
                 info.TeleportOrigin = origin;
 
+#if DEBUG
                 _logger.LogInformation("{name} @ {origin} with angles: {angle} is within zone {zonename}",
                                        ent.Name,
                                        ent.GetAbsOrigin(),
                                        ent.GetAbsAngles(),
                                        info.TargetName);
+#endif
 
                 break;
             }
