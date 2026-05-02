@@ -106,7 +106,7 @@ internal partial class TimerModule
         }
 
         var track = _timerInfo[slot]?.Track ?? 0;
-
+        StopTimer(slot);
         _zoneModule.TeleportToZone(pawn, track, EZoneType.End);
 
         _bridge.ModSharp.InvokeFrameAction(() => { StopTimer(slot); });
@@ -143,6 +143,8 @@ internal partial class TimerModule
         {
             return ECommandAction.Handled;
         }
+
+        StopTimer(slot);
 
         // Stage 1 = start zone
         if (stage == 1)
