@@ -98,6 +98,8 @@ internal class MapInfoModule : IModule, IMapInfoModule, IGameListener
         "mp_solid_enemies 0",
         "mp_solid_teammates 0",
         "sv_legacy_jump 1",
+        "bot_auto_vacate 0",
+        "ms_override_team_limit 1",
     ];
 
     private static readonly GameModeConfig DefaultConfig = new(
