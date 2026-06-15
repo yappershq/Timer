@@ -412,12 +412,8 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
 
                 var controller = client.GetPlayerController();
 
-                if (controller is not { IsValidEntity: true })
-                {
-                    return ECommandAction.Handled;
-                }
-
-                if (_timerModule.GetTimerInfo(slot) is not { } timerInfo
+                if (controller is not { IsValidEntity: true }
+                    || _timerModule.GetTimerInfo(slot) is not { } timerInfo
                     || _timerModule.GetStageTimerInfo(slot) is not { } stageTimer)
                 {
                     return ECommandAction.Handled;
@@ -427,9 +423,27 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
                 NotifyClientStyleChanged(slot, oldStyle, styleIndex);
                 timerInfo.ChangeStyle(styleIndex);
                 stageTimer.ChangeStyle(styleIndex);
-                controller.Respawn();
 
-                ReplicateClientCvars(client, styleIndex);
+                // force respawning the player after the game has processed most of the logic to
+                // prevent crashes. because Respawn fundamentally calls SetPawn in the modsharp framework
+                // and doing that in the middle of processing can make WriteEnterPVS, which has parallel workers,
+                // fail to ge the pawn entity
+                _bridge.ModSharp.InvokeFrameAction(() =>
+                {
+                    if (_bridge.ClientManager.GetGameClient(slot) is not { } deferredClient)
+                    {
+                        return;
+                    }
+
+                    if (deferredClient.GetPlayerController() is not { IsValidEntity: true } deferredController)
+                    {
+                        return;
+                    }
+
+                    deferredController.Respawn();
+
+                    ReplicateClientCvars(deferredClient, styleIndex);
+                });
 
                 return ECommandAction.Handled;
             }
