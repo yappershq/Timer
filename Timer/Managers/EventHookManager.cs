@@ -36,7 +36,7 @@ internal interface IEventHookManager
     void ListenEvent(string eventName, FireEventCallback callback);
 }
 
-internal class EventHookParams
+internal readonly struct EventHookParams
 {
     public EventHookParams(IGameEvent e, bool serverOnly)
     {
@@ -44,7 +44,7 @@ internal class EventHookParams
         ServerOnly = serverOnly;
     }
 
-    public IGameEvent Event      { get; private set; }
+    public IGameEvent Event      { get; }
     public bool       ServerOnly { get; }
 }
 

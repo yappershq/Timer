@@ -21,7 +21,9 @@ namespace Source2Surf.Timer.Shared.Models;
 
 public class MapProfile
 {
-    public const int DefaultTrackCount = 32;
+    // Must match MAX_TRACK: consumers validate/index tracks against TimerConstants.MAX_TRACK
+    // while this sizes the Tier array — diverging values would read out of bounds.
+    public const int DefaultTrackCount = TimerConstants.MAX_TRACK;
 
     public ulong MapId { get; set; }
 

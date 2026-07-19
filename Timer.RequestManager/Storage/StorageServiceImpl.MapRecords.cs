@@ -134,8 +134,67 @@ internal sealed partial class StorageServiceImpl
                               .Take(normalizedLimit)
                               .ToListAsync();
 
-        return runs.Select(ToRunRecord)
-                   .ToList();
+        var result = new List<RunRecord>(runs.Count);
+
+        foreach (var run in runs)
+        {
+            result.Add(ToRunRecord(run));
+        }
+
+        await PopulatePlayerNamesAsync(result);
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Fills <see cref="RunRecord.PlayerName" /> from surf_players in one batched query.
+    ///     Run rows only store SteamId, but leaderboard output (!wr/!top) renders the name.
+    /// </summary>
+    private async Task PopulatePlayerNamesAsync(List<RunRecord> records)
+    {
+        if (records.Count == 0)
+        {
+            return;
+        }
+
+        var seen     = new HashSet<ulong>(records.Count);
+        var steamIds = new List<SteamID>(records.Count);
+
+        foreach (var record in records)
+        {
+            if (seen.Add(record.SteamId))
+            {
+                steamIds.Add(new SteamID(record.SteamId));
+            }
+        }
+
+        var rows = await _db.Queryable<PlayerEntity>()
+                            .Where(x => steamIds.Contains(x.SteamId))
+                            .Select(x => new PlayerNameRow { SteamId = x.SteamId, Name = x.Name })
+                            .ToListAsync();
+
+        var names = new Dictionary<ulong, string>(rows.Count);
+
+        foreach (var row in rows)
+        {
+            names[row.SteamId.AsPrimitive()] = row.Name;
+        }
+
+        foreach (var record in records)
+        {
+            if (names.TryGetValue(record.SteamId, out var name))
+            {
+                record.PlayerName = name;
+            }
+        }
+    }
+
+    private sealed class PlayerNameRow
+    {
+        [SugarColumn(ColumnDataType = "bigint", SqlParameterDbType = typeof(SteamIdDataConvert))]
+        public SteamID SteamId { get; set; }
+
+        public string Name { get; set; } = string.Empty;
     }
 
     public async Task<IReadOnlyList<RunRecord>> GetRecentRecords(string mapName, SteamID steamId, int limit = 10)

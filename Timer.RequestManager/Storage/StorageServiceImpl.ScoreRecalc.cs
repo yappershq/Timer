@@ -15,10 +15,12 @@ internal sealed partial class StorageServiceImpl
 {
     /// <summary>
     /// Full recalculation of all player scores for a given track.
-    /// 1. Single SELECT: uses ROW_NUMBER() + COUNT() window functions to get ranked list and total count
+    /// 1. SELECT the best run per player ordered by (Time ASC, RunId ASC); rank is the 1-based position
+    ///    in that ordered list and total is its count — computed in C#, NOT via SQL window functions.
     /// 2. In-memory ScoreCalculator pass to compute each player's score
     /// 3. Batch UPSERT: update PlayerTrackScoreEntity (changed records only)
-    /// 4. Batch UPDATE: aggregate and update PlayerEntity.Points via subquery
+    /// 4. Atomic per-player UPDATE of PlayerEntity.Points = SUM(track scores) (see UpdatePlayerTotalPointsAsync) —
+    ///    a single read-modify-write statement so concurrent recalcs on a shared DB cannot lose the cross-map total.
     /// </summary>
     internal async Task RecalculateTrackScoresAsync(ulong mapId, int style, ushort track, int tier, int basePot, double styleFactor)
     {
@@ -35,14 +37,8 @@ internal sealed partial class StorageServiceImpl
 
         var total = rankedPlayers.Count;
 
-        // 2. Compute scores in memory
-        var calculatedScores = rankedPlayers.Select((p, index) => new
-        {
-            p.SteamId,
-            Points = (uint)Math.Round(ScoreCalculator.CalculatePlayerTrackScore(trackPool, index + 1, total))
-        }).ToList();
-
-        // 3. Query existing scores for delta comparison
+        // 2. Query existing scores for delta comparison, building the lookup dict directly (no
+        //    intermediate List + ToDictionary). Covered index-only by idx_player_track_scores_map_style_track.
         var existingScores = await _db.Queryable<PlayerTrackScoreEntity>()
                                       .Where(x => x.MapId == mapId && x.Style == style && x.Track == track)
                                       .Select(x => new ExistingTrackScoreRow
@@ -52,29 +48,45 @@ internal sealed partial class StorageServiceImpl
                                       })
                                       .ToListAsync();
 
-        var existingDict = existingScores.ToDictionary(x => x.SteamId, x => x.Points);
+        var existingDict = new Dictionary<SteamID, uint>(existingScores.Count);
+        foreach (var row in existingScores)
+        {
+            existingDict[row.SteamId] = row.Points;
+        }
 
-        // 4. Delta filter: keep only records whose score actually changed
+        // 3. Single pre-sized pass: compute each rank's score and keep only the rows whose stored value
+        //    actually changed. Replaces the former anonymous-type Select.ToList -> Where.Select.ToList
+        //    pipeline (3+ intermediate O(n) collections + one heap object per player) with one list.
         var now = DateTime.UtcNow;
-        var changedScores = calculatedScores
-            .Where(c => !existingDict.TryGetValue(c.SteamId, out var oldPoints) || oldPoints != c.Points)
-            .Select(c => new PlayerTrackScoreEntity
+        var changedScores = new List<PlayerTrackScoreEntity>();
+
+        for (var index = 0; index < total; index++)
+        {
+            var steamId = rankedPlayers[index].SteamId;
+            var points = (uint) Math.Round(ScoreCalculator.CalculatePlayerTrackScore(trackPool, index + 1, total));
+
+            if (existingDict.TryGetValue(steamId, out var oldPoints) && oldPoints == points)
             {
-                SteamId = c.SteamId,
+                continue; // unchanged — skip write
+            }
+
+            changedScores.Add(new PlayerTrackScoreEntity
+            {
+                SteamId = steamId,
                 MapId = mapId,
                 Style = style,
                 Track = track,
-                Points = c.Points,
-                UpdatedAt = now
-            })
-            .ToList();
+                Points = points,
+                UpdatedAt = now,
+            });
+        }
 
         if (changedScores.Count == 0)
         {
             return; // No changes, skip write
         }
 
-        // 5. Batch UPSERT only changed records (insert new, update existing)
+        // 4. Batch UPSERT only changed records (insert new, update existing)
         var storage = _db.Storageable(changedScores)
             .WhereColumns(x => new { x.SteamId, x.MapId, x.Style, x.Track })
             .ToStorage();
@@ -91,60 +103,59 @@ internal sealed partial class StorageServiceImpl
                 .ExecuteCommandAsync();
         }
 
-        // 6. Aggregate and update PlayerEntity.Points for affected players
-        await UpdatePlayerTotalPointsAsync(changedScores.Select(x => x.SteamId));
+        // 5. Aggregate and update PlayerEntity.Points for affected players. changedScores already holds
+        //    one row per distinct player (from the ranked best-run set), so no Distinct pass is needed.
+        var affectedIds = new List<SteamID>(changedScores.Count);
+        foreach (var s in changedScores)
+        {
+            affectedIds.Add(s.SteamId);
+        }
+
+        await UpdatePlayerTotalPointsAsync(affectedIds);
     }
 
 
     /// <summary>
-    /// Aggregate all track scores for the given players and batch-update PlayerEntity.Points.
-    /// Uses a single GROUP BY query to aggregate in SQL, then batch update.
+    /// Recompute PlayerEntity.Points for the given players as a single atomic statement per chunk:
+    /// UPDATE players SET Points = COALESCE((SELECT SUM(Points) FROM track_scores WHERE SteamId = players.SteamId), 0).
+    /// Computing the sum and writing it in ONE statement (instead of SELECT-into-memory then a blind UPDATE)
+    /// closes the cross-server lost-update window on the GLOBAL cross-map Points total without any locking:
+    /// each row's new value is derived from the currently-committed track scores at write time, so two servers
+    /// recomputing the same player from different maps can no longer clobber each other with a stale total.
+    /// Chunked to bound the generated statement size: the SteamId IN(...) list renders as inlined numeric
+    /// literals (the SteamId converter), so the limit that matters is statement text size (e.g. MySQL
+    /// max_allowed_packet), not a bound-parameter count.
     /// </summary>
-    private async Task UpdatePlayerTotalPointsAsync(IEnumerable<SteamID> steamIds)
+    private async Task UpdatePlayerTotalPointsAsync(IReadOnlyList<SteamID> idList)
     {
-        var idList = steamIds.Distinct().ToList();
         if (idList.Count == 0)
         {
             return;
         }
 
-        // SQL-level aggregation: SELECT SteamId, SUM(Points) FROM ... GROUP BY SteamId
-        var aggregated = await _db.Queryable<PlayerTrackScoreEntity>()
-            .Where(x => idList.Contains(x.SteamId))
-            .GroupBy(x => x.SteamId)
-            .Select(x => new
-            {
-                x.SteamId,
-                TotalPoints = SqlFunc.AggregateSum(x.Points),
-            })
-            .ToListAsync();
+        const int chunkSize = 5000;
+        var       now       = DateTime.UtcNow;
 
-        var newTotals = aggregated.ToDictionary(x => x.SteamId, x => (uint) x.TotalPoints);
-
-        var now = DateTime.UtcNow;
-
-        var updates = idList.Select(id => new PlayerEntity
+        for (var offset = 0; offset < idList.Count; offset += chunkSize)
         {
-            SteamId = id,
-            Points = newTotals.TryGetValue(id, out var pts) ? pts : 0,
-            UpdatedAt = now
-        }).ToList();
+            var take  = Math.Min(chunkSize, idList.Count - offset);
+            var chunk = new List<SteamID>(take);
 
-        await _db.Updateable(updates)
-            .UpdateColumns(x => new { x.Points, x.UpdatedAt })
-            .WhereColumns(x => x.SteamId)
-            .ExecuteCommandAsync();
-    }
+            for (var i = 0; i < take; i++)
+            {
+                chunk.Add(idList[offset + i]);
+            }
 
-    /// <summary>
-    /// Get the tier for a given track from MapTrackEntity.
-    /// For the main track (track=0), reads from MapEntity instead.
-    /// </summary>
-    internal async Task<int> GetTrackTierAsync(ulong mapId, ushort track)
-    {
-        var (tier, _) = await GetTrackScoreConfigAsync(mapId, track);
-
-        return tier;
+            await _db.Updateable<PlayerEntity>()
+                     .SetColumns(p => p.Points == SqlFunc.IsNull(
+                                          SqlFunc.Subqueryable<PlayerTrackScoreEntity>()
+                                                 .Where(s => s.SteamId == p.SteamId)
+                                                 .Sum(s => s.Points),
+                                          0u))
+                     .SetColumns(p => p.UpdatedAt == now)
+                     .Where(p => chunk.Contains(p.SteamId))
+                     .ExecuteCommandAsync();
+        }
     }
 
     /// <summary>

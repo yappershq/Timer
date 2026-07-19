@@ -20,4 +20,10 @@ internal sealed class MapEntity
     /// 0 means use the global default (ScoreCalculator.DefaultBasePot).
     /// </summary>
     public int BasePot { get; set; }
+
+    public int Bonuses { get; set; }
+
+    public int PlayCount { get; set; }
+
+    public float TotalPlayTime { get; set; }
 }

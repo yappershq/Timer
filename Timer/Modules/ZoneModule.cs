@@ -27,6 +27,7 @@ using Sharp.Shared.Listeners;
 using Sharp.Shared.Types;
 using Sharp.Shared.Units;
 using Source2Surf.Timer.Extensions;
+using Source2Surf.Timer.Managers.Player;
 using Source2Surf.Timer.Modules.Zone;
 using Source2Surf.Timer.Shared;
 using Source2Surf.Timer.Shared.Interfaces;
@@ -62,7 +63,7 @@ internal interface IZoneModule
 
 // TODO:
 
-internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGameListener
+internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGameListener, IPlayerManagerListener
 {
     public int ListenerVersion  => IGameListener.ApiVersion;
     public int ListenerPriority => 0;
@@ -70,6 +71,7 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
     private readonly InterfaceBridge      _bridge;
     private readonly ICommandManager      _commandManager;
     private readonly IRequestManager      _requestManager;
+    private readonly IPlayerManager       _playerManager;
 
     private readonly ILogger<ZoneModule> _logger;
     private readonly ListenerHub<IZoneModuleListener> _listenerHub;
@@ -92,6 +94,7 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
     public ZoneModule(InterfaceBridge     bridge,
                       ICommandManager     commandManager,
                       IRequestManager     requestManager,
+                      IPlayerManager      playerManager,
                       ILogger<ZoneModule> logger)
     {
         _bridge         = bridge;
@@ -99,6 +102,7 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
         _listenerHub    = new ListenerHub<IZoneModuleListener>(logger);
         _commandManager = commandManager;
         _requestManager = requestManager;
+        _playerManager  = playerManager;
         _buildZoneInfo  = new BuildZoneInfo?[PlayerSlot.MaxPlayerCount];
 
         for (var t = 0; t < TimerConstants.MAX_TRACK; t++)
@@ -196,16 +200,17 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
 
     public EHookAction OnEntityFireOutput(IBaseEntity entity, string output, IBaseEntity? activator, float delay)
     {
-        if (activator?.AsPlayerPawn() is not { IsValidEntity: true } pawn
-            || pawn.GetController() is not { IsValidEntity : true } controller
-            || controller.IsFakeClient)
+        // Zone lookup first: this fires for every hooked output on every trigger_multiple
+        // on the map, so non-zone triggers should exit on a dictionary miss before the
+        // activator→pawn→controller resolution chain.
+        if (!_zones.TryGetValue(entity.Handle.GetValue(), out var info))
         {
             return EHookAction.Ignored;
         }
 
-        var entityHandle = entity.Handle.GetValue();
-
-        if (!_zones.TryGetValue(entityHandle, out var info))
+        if (activator?.AsPlayerPawn() is not { IsValidEntity: true } pawn
+            || pawn.GetController() is not { IsValidEntity : true } controller
+            || controller.IsFakeClient)
         {
             return EHookAction.Ignored;
         }
@@ -260,6 +265,13 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
             _currentMaxStages[i] = -1;
         }
 
+        // Abandon in-progress zone builds; the beam entities are torn down with the map,
+        // so only the references are dropped (no KillBeams on dying entities).
+        for (var slot = 0; slot < _buildZoneInfo.Length; slot++)
+        {
+            _buildZoneInfo[slot] = null;
+        }
+
         _zones.Clear();
 
         for (var t = 0; t < TimerConstants.MAX_TRACK; t++)
@@ -273,12 +285,12 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
 
     public void OnServerActivate()
     {
+        var mapName = _bridge.CurrentMapName;
+
         Task.Run(async () =>
                  {
                      try
                      {
-                         var mapName = _bridge.GlobalVars.MapName;
-
                          var zones = await RetryHelper.RetryAsync(() => _requestManager.GetZonesAsync(mapName),
                                                                   RetryHelper.IsTransient,
                                                                   _logger,
@@ -289,7 +301,19 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
                              foreach (var zoneData in zones)
                              {
                                  var zoneInfo = ZoneMapper.ToZoneInfo(zoneData);
-                                 AddZone(zoneInfo);
+
+                                 try
+                                 {
+                                     AddZone(zoneInfo);
+                                 }
+                                 catch (Exception e)
+                                 {
+                                     // One broken zone must not abort loading the rest.
+                                     _logger.LogError(e,
+                                                      "Failed to create zone (track={Track}, type={Type}); skipping it.",
+                                                      zoneInfo.Track,
+                                                      zoneInfo.ZoneType);
+                                 }
                              }
                          }).ConfigureAwait(false);
                      }
@@ -303,14 +327,16 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
 
     public bool Init()
     {
+        // Only outputs the OnEntityFireOutput switch actually handles — OnTouching /
+        // OnTouchingEachEntity fire per m_flWait per touching player on EVERY
+        // trigger_multiple on the map and were dropped unhandled.
         _bridge.EntityManager.HookEntityOutput("trigger_multiple", "OnStartTouch");
         _bridge.EntityManager.HookEntityOutput("trigger_multiple", "OnEndTouch");
-        _bridge.EntityManager.HookEntityOutput("trigger_multiple", "OnTouching");
         _bridge.EntityManager.HookEntityOutput("trigger_multiple", "OnTrigger");
-        _bridge.EntityManager.HookEntityOutput("trigger_multiple", "OnTouchingEachEntity");
 
         _bridge.ModSharp.InstallGameListener(this);
         _bridge.EntityManager.InstallEntityListener(this);
+        _playerManager.RegisterListener(this);
 
         _bridge.HookManager.PlayerRunCommand.InstallHookPre(OnPlayerRunCommandPre);
 
@@ -321,10 +347,29 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
 
     public void Shutdown()
     {
+        _playerManager.UnregisterListener(this);
         _bridge.EntityManager.RemoveEntityListener(this);
         _bridge.ModSharp.RemoveGameListener(this);
         _bridge.HookManager.PlayerRunCommand.RemoveHookPre(OnPlayerRunCommandPre);
         _listenerHub.Clear();
+    }
+
+    public void OnClientDisconnected(PlayerSlot slot)
+        => ClearBuildZoneInfo(slot);
+
+    /// <summary>
+    ///     Abandon a slot's in-progress zone build. Without this, the next player assigned
+    ///     the slot would inherit an active build session (and its live beam entities).
+    /// </summary>
+    private void ClearBuildZoneInfo(PlayerSlot slot)
+    {
+        if (_buildZoneInfo[slot] is not { } buildInfo)
+        {
+            return;
+        }
+
+        buildInfo.KillBeams();
+        _buildZoneInfo[slot] = null;
     }
 
     public void RegisterListener(IZoneModuleListener listener)
@@ -334,49 +379,19 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
         => _listenerHub.Unregister(listener);
 
     private void NotifyZoneStartTouch(ZoneInfo info, IPlayerController controller, IPlayerPawn pawn)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnZoneStartTouch(info, controller, pawn);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnZoneStartTouch listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnZoneStartTouch",
+                                  static (l, i, c, p) => l.OnZoneStartTouch(i, c, p),
+                                  info, controller, pawn);
 
     private void NotifyZoneEndTouch(ZoneInfo info, IPlayerController controller, IPlayerPawn pawn)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnZoneEndTouch(info, controller, pawn);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnZoneEndTouch listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnZoneEndTouch",
+                                  static (l, i, c, p) => l.OnZoneEndTouch(i, c, p),
+                                  info, controller, pawn);
 
     private void NotifyZoneTrigger(ZoneInfo info, IPlayerController controller, IPlayerPawn pawn)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnZoneTrigger(info, controller, pawn);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnZoneTrigger listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnZoneTrigger",
+                                  static (l, i, c, p) => l.OnZoneTrigger(i, c, p),
+                                  info, controller, pawn);
 
     public unsafe void AddZone(ZoneInfo info)
     {
@@ -401,7 +416,7 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
 
         if (entPtr == 0)
         {
-            throw new ("Failed to create trigger");
+            throw new InvalidOperationException($"Failed to create trigger for zone (track={info.Track}, type={info.ZoneType})");
         }
 
         if (_bridge.EntityManager.MakeEntityFromPointer<IBaseTrigger>(entPtr) is not { } ent)
@@ -411,6 +426,8 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
 
         ent.SetName(targetName);
 
+        // SF_TRIGGER_ALLOW_CLIENTS (0x01) | SF_TRIG_TOUCH_DEBRIS (0x1000): trigger fires
+        // for players, and keeps firing while they are surfing (debris-like movement).
         ent.SpawnFlags =  4097;
         ent.Effects    |= EntityEffects.NoDraw;
         ent.SetNetVar("m_flWait", TimerConstants.TickInterval);
@@ -528,6 +545,11 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
                 if (!ZoneMatcher.IsBonusStartZone(targetName, out track))
                 {
                     return ZoneMatcher.IsStartZone(targetName) && TryAddZoneToIndex(handle, info);
+                }
+
+                if ((uint) track >= TimerConstants.MAX_TRACK)
+                {
+                    return false;
                 }
 
                 if (_currentMaxStages[track] < 1)
@@ -820,6 +842,11 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
         }
 
         var func = *(nint*) (ptr + 0x38);
+
+        if (func == nint.Zero)
+        {
+            return false;
+        }
 
         try
         {

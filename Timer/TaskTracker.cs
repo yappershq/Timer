@@ -24,6 +24,8 @@ namespace Source2Surf.Timer;
 
 internal sealed class TaskTracker
 {
+    private static readonly TimeSpan DefaultDrainTimeout = TimeSpan.FromSeconds(5);
+
     private readonly List<Task> _pendingTasks = [];
     private readonly ILogger _logger;
 
@@ -36,7 +38,23 @@ internal sealed class TaskTracker
     {
         lock (_pendingTasks)
         {
-            _pendingTasks.RemoveAll(static t => t.IsCompleted);
+            // Observe faulted tasks as they are pruned — otherwise their exceptions are
+            // silently dropped (surfacing only as UnobservedTaskException at GC time).
+            _pendingTasks.RemoveAll(t =>
+            {
+                if (!t.IsCompleted)
+                {
+                    return false;
+                }
+
+                if (t.IsFaulted)
+                {
+                    _logger.LogError(t.Exception, "Tracked task failed");
+                }
+
+                return true;
+            });
+
             _pendingTasks.Add(task);
         }
     }
@@ -54,13 +72,34 @@ internal sealed class TaskTracker
         if (snapshot.Length == 0)
             return;
 
+        var completed = false;
+
         try
         {
-            Task.WaitAll(snapshot, timeout ?? TimeSpan.FromSeconds(5));
+            completed = Task.WaitAll(snapshot, timeout ?? DefaultDrainTimeout);
         }
         catch (AggregateException ex)
         {
+            completed = true;
             _logger.LogWarning(ex, "Some pending record tasks failed during shutdown");
         }
+
+        if (completed)
+        {
+            return;
+        }
+
+        var unfinished = 0;
+
+        foreach (var task in snapshot)
+        {
+            if (!task.IsCompleted)
+            {
+                unfinished++;
+            }
+        }
+
+        _logger.LogWarning("Drain timed out with {count} pending task(s) still running; their results/failures are abandoned.",
+                           unfinished);
     }
 }

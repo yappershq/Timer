@@ -59,16 +59,7 @@ public class Timer : IModSharpModule
                             .AddJsonFile(Path.Combine(dllPath, "appsettings.json"), false, false)
                             .Build();*/
 
-        var bridge = new InterfaceBridge(this,
-                                         dllPath,
-                                         sharpPath,
-                                         version,
-                                         shared,
-                                         coreConfiguration,
-                                         hotReload,
-                                         token.Token,
-                                         shared.GetModSharp()
-                                               .HasCommandLine("-debug"));
+        var bridge = new InterfaceBridge(sharpPath, shared, token.Token);
 
         var factory = shared.GetLoggerFactory();
         var logger  = factory.CreateLogger<Timer>();
@@ -180,10 +171,15 @@ public class Timer : IModSharpModule
 
     public void OnLibraryConnected(string moduleIdentity)
     {
-        RefreshRequestManager();
-        RefreshReplayProvider();
-
-        if (moduleIdentity.Equals(ICommandManager.Identity, StringComparison.Ordinal))
+        if (moduleIdentity.Equals(IRequestManager.Identity, StringComparison.Ordinal))
+        {
+            RefreshRequestManager();
+        }
+        else if (moduleIdentity.Equals(IReplayProvider.Identity, StringComparison.Ordinal))
+        {
+            RefreshReplayProvider();
+        }
+        else if (moduleIdentity.Equals(ICommandManager.Identity, StringComparison.Ordinal))
         {
             RefreshCommandManager();
         }
@@ -194,6 +190,12 @@ public class Timer : IModSharpModule
         if (moduleIdentity.Equals(IRequestManager.Identity, StringComparison.Ordinal))
         {
             SwitchRequestManagerToLiteDb();
+        }
+        else if (moduleIdentity.Equals(IReplayProvider.Identity, StringComparison.Ordinal))
+        {
+            // RefreshProvider re-resolves; with the module gone it clears the provider
+            // instead of holding a dead reference.
+            RefreshReplayProvider();
         }
         else if (moduleIdentity.Equals(ICommandManager.Identity, StringComparison.Ordinal))
         {
@@ -276,9 +278,6 @@ public class Timer : IModSharpModule
         services.AddManagerService();
         services.AddModuleService();
     }
-
-    public T GetService<T>()
-        => _serviceProvider.GetService<T>() ?? throw new ("Failed to get service");
 
     private void RefreshRequestManager()
     {

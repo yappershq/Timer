@@ -9,7 +9,7 @@ internal partial class MiscModule
 {
     private unsafe void PatchTheNavCheck()
     {
-        var server = _bridge.LibraryModuleManager.Server;
+        var server = _bridge.Modules.Server;
 
         // 1. Resolve CCSGameConfiguration::AddModGameSystem address and extract the absolute address of g_fGameOver
 
@@ -31,6 +31,13 @@ internal partial class MiscModule
             if (!server.GetFunctionRange(CCSGameConfiguration_AddModGameSystem, out _, out end))
             {
                 _logger.LogWarning("Failed to get function range for CCSGameConfiguration::AddModGameSystem");
+
+                return;
+            }
+
+            if (end <= CCSGameConfiguration_AddModGameSystem)
+            {
+                _logger.LogWarning("Invalid function range for CCSGameConfiguration::AddModGameSystem (end <= start)");
 
                 return;
             }
@@ -92,6 +99,9 @@ internal partial class MiscModule
 
                 if (!server.GetFunctionRange(referencedFunction, out var funcStart, out var funcEnd))
                     throw new Exception("Failed to get function range");
+
+                if (funcEnd <= funcStart)
+                    throw new Exception("Invalid function range (end <= start)");
 
                 var length     = (uint) (funcEnd - funcStart);
                 var codeReader = new UnsafeCodeReader(funcStart, length);
@@ -159,6 +169,13 @@ internal partial class MiscModule
         if (!server.GetFunctionRange(CCSBotManager_BotAddCommandAddress, out _, out end))
         {
             _logger.LogWarning("Failed to get function range for CCSBotManager::BotAddCommand");
+
+            return;
+        }
+
+        if (end <= CCSBotManager_BotAddCommandAddress)
+        {
+            _logger.LogWarning("Invalid function range for CCSBotManager::BotAddCommand (end <= start)");
 
             return;
         }

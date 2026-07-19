@@ -125,7 +125,7 @@ internal partial class ZoneModule
 
             _buildZoneInfo[client.Slot] = null;
 
-            var mapName = _bridge.GlobalVars.MapName;
+            var mapName = _bridge.CurrentMapName;
             var zoneSnapshot = _zones.AsValueEnumerable()
                                      .Where(i => i.Value.Prebuilt == false)
                                      .Select(i => ZoneMapper.ToZoneData(i.Value))

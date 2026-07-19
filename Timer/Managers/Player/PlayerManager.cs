@@ -65,8 +65,6 @@ internal class PlayerManager : IManager, IPlayerManager, IClientListener
     // Listener hub for notifying consumers
     private readonly ListenerHub<IPlayerManagerListener> _listenerHub;
 
-    private readonly ISteamApi _steamApi;
-
     public PlayerManager(InterfaceBridge        bridge,
                          IRequestManager        requestManager,
                          ILogger<PlayerManager> logger)
@@ -74,8 +72,6 @@ internal class PlayerManager : IManager, IPlayerManager, IClientListener
         _bridge         = bridge;
         _requestManager = requestManager;
         _logger         = logger;
-
-        _steamApi = _bridge.ModSharp.GetSteamGameServer();
 
         _profiles        = new PlayerProfile?[PlayerSlot.MaxPlayerCount];
         _pendingSteamIds = new SteamID?[PlayerSlot.MaxPlayerCount];
@@ -104,26 +100,9 @@ internal class PlayerManager : IManager, IPlayerManager, IClientListener
     }
 
     public void OnClientPutInServer(IGameClient client)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnClientPutInServer(client.Slot);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnClientPutInServer listener");
-            }
-        }
-
-        var serverLoggedInToSteam = _steamApi.BLoggedOn() && _steamApi.IsAvailable();
-
-        if (serverLoggedInToSteam)
-        {
-            return;
-        }
-    }
+        => _listenerHub.NotifyAll("OnClientPutInServer",
+                                  static (l, s) => l.OnClientPutInServer(s),
+                                  client.Slot);
 
     public void OnClientPostAdminCheck(IGameClient client)
     {
@@ -200,17 +179,9 @@ internal class PlayerManager : IManager, IPlayerManager, IClientListener
                     _steamIdToSlot[steamId] = slot;
                     _pendingSteamIds[slot]  = null;
 
-                    foreach (var listener in _listenerHub.Snapshot)
-                    {
-                        try
-                        {
-                            listener.OnClientInfoLoaded(steamId);
-                        }
-                        catch (Exception exception)
-                        {
-                            _logger.LogError(exception, "Error when calling OnClientInfoLoaded listener");
-                        }
-                    }
+                    _listenerHub.NotifyAll("OnClientInfoLoaded",
+                                           static (l, s) => l.OnClientInfoLoaded(s),
+                                           steamId);
                 }).ConfigureAwait(false);
             }
             catch (Exception e)
@@ -224,17 +195,9 @@ internal class PlayerManager : IManager, IPlayerManager, IClientListener
     {
         var slot = (int) client.Slot;
 
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnClientDisconnected(client.Slot);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnClientDisconnected listener");
-            }
-        }
+        _listenerHub.NotifyAll("OnClientDisconnected",
+                               static (l, s) => l.OnClientDisconnected(s),
+                               client.Slot);
 
         if (_profiles[slot] is { } profile)
         {

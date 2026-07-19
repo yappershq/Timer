@@ -41,7 +41,11 @@ public class SqlRequestManager : IModSharpModule
         _shared = sharedSystem;
         _logger = sharedSystem.GetLoggerFactory().CreateLogger<SqlRequestManager>();
 
-        var (dbType, connectionString, source) = ResolveDatabaseConnection(sharpPath, configuration);
+        // Parse timer.jsonc once; both the DB and replay config readers consume it.
+        var       configPath  = Path.Combine(sharpPath, TimerConfigDirectoryName, TimerConfigFileName);
+        using var timerConfig = LoadTimerJsonc(configPath);
+
+        var (dbType, connectionString, source) = ResolveDatabaseConnection(timerConfig, configPath, configuration);
 
         _logger.LogInformation("Resolved SQL config from {source}.", source);
 
@@ -50,7 +54,7 @@ public class SqlRequestManager : IModSharpModule
                                                  sharedSystem.GetLoggerFactory().CreateLogger<StorageServiceImpl>());
         _impl = storageImpl;
 
-        var replayConfig = ResolveReplayConfig(sharpPath, configuration);
+        var replayConfig = ResolveReplayConfig(timerConfig, configPath, configuration);
 
         if (string.IsNullOrWhiteSpace(replayConfig.BaseUrl))
         {
@@ -106,15 +110,31 @@ public class SqlRequestManager : IModSharpModule
         ((StorageServiceImpl) _impl).Shutdown();
     }
 
+    private static JsonDocument? LoadTimerJsonc(string configPath)
+    {
+        if (!File.Exists(configPath))
+        {
+            return null;
+        }
+
+        using var stream = File.OpenRead(configPath);
+
+        return JsonDocument.Parse(stream,
+            new JsonDocumentOptions
+            {
+                CommentHandling     = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true,
+            });
+    }
+
     private static (DbType DbType, string ConnectionString, string Source) ResolveDatabaseConnection(
-        string sharpPath,
+        JsonDocument?  timerConfig,
+        string         configPath,
         IConfiguration configuration)
     {
-        var configPath = Path.Combine(sharpPath, TimerConfigDirectoryName, TimerConfigFileName);
-
-        if (File.Exists(configPath))
+        if (timerConfig is not null)
         {
-            var (dbType, connectionString) = ParseTimerJsonc(configPath);
+            var (dbType, connectionString) = ParseTimerJsonc(timerConfig.RootElement, configPath);
             return (dbType, connectionString, configPath);
         }
 
@@ -126,13 +146,11 @@ public class SqlRequestManager : IModSharpModule
 
     private readonly record struct ReplayConfig(string BaseUrl, bool UploadNonPersonalBest, string Source);
 
-    private static ReplayConfig ResolveReplayConfig(string sharpPath, IConfiguration configuration)
+    private static ReplayConfig ResolveReplayConfig(JsonDocument? timerConfig, string configPath, IConfiguration configuration)
     {
-        var configPath = Path.Combine(sharpPath, TimerConfigDirectoryName, TimerConfigFileName);
-
-        if (File.Exists(configPath))
+        if (timerConfig is not null)
         {
-            var parsed = ParseReplayConfigFromTimerJsonc(configPath);
+            var parsed = ParseReplayConfigFromTimerJsonc(timerConfig.RootElement, configPath);
 
             if (!string.IsNullOrWhiteSpace(parsed.BaseUrl))
             {
@@ -154,19 +172,8 @@ public class SqlRequestManager : IModSharpModule
         return new ReplayConfig(string.Empty, false, "none");
     }
 
-    private static (DbType DbType, string ConnectionString) ParseTimerJsonc(string configPath)
+    private static (DbType DbType, string ConnectionString) ParseTimerJsonc(JsonElement root, string configPath)
     {
-        using var stream = File.OpenRead(configPath);
-
-        using var document = JsonDocument.Parse(stream,
-            new JsonDocumentOptions
-            {
-                CommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true,
-            });
-
-        var root = document.RootElement;
-
         if (root.ValueKind != JsonValueKind.Object
             || !TryGetPropertyIgnoreCase(root, "database", out var database)
             || database.ValueKind != JsonValueKind.Object)
@@ -191,19 +198,8 @@ public class SqlRequestManager : IModSharpModule
         };
     }
 
-    private static ReplayConfig ParseReplayConfigFromTimerJsonc(string configPath)
+    private static ReplayConfig ParseReplayConfigFromTimerJsonc(JsonElement root, string configPath)
     {
-        using var stream = File.OpenRead(configPath);
-
-        using var document = JsonDocument.Parse(stream,
-            new JsonDocumentOptions
-            {
-                CommentHandling = JsonCommentHandling.Skip,
-                AllowTrailingCommas = true,
-            });
-
-        var root = document.RootElement;
-
         if (root.ValueKind != JsonValueKind.Object)
         {
             throw new InvalidDataException($"Invalid root object in {configPath}.");

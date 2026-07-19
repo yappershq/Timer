@@ -22,9 +22,4 @@ public interface IReplayPlaybackModule : IReplayModule
     /// </summary>
     /// <returns>true if the cache was updated (new replay is better or cache was empty), false otherwise.</returns>
     bool OnNewStageReplaySaved(int style, int track, int stage, ReplayContent content, ReplaySaveContext context);
-
-    /// <summary>
-    /// Determines whether a replay should be uploaded to remote storage by querying registered listeners.
-    /// </summary>
-    bool ShouldUploadReplay(ulong steamId, int style, int track, int stage, float time, bool isNewBest);
 }

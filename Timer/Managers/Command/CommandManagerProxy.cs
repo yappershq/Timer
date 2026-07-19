@@ -17,7 +17,6 @@
 
 using System;
 using System.Collections.Immutable;
-using System.Threading;
 using Microsoft.Extensions.Logging;
 using Sharp.Shared;
 using Sharp.Shared.Enums;
@@ -26,128 +25,26 @@ using Source2Surf.Timer.Shared.Interfaces;
 
 namespace Source2Surf.Timer.Managers.Command;
 
-internal sealed class CommandManagerProxy : IManager, ICommandManager
+internal sealed class CommandManagerProxy : ExternalModuleProxy<ICommandManager>, ICommandManager
 {
-    private readonly ISharedSystem                  _shared;
-    private readonly CommandManager                 _fallback;
-    private readonly ILogger<CommandManagerProxy>   _logger;
-
-    private ICommandManager _current;
-    private bool            _fallbackInitialized;
+    private readonly CommandManager _fallbackManager;
 
     public CommandManagerProxy(ISharedSystem                shared,
                                CommandManager               fallback,
-                               ILogger<CommandManagerProxy>  logger)
+                               ILogger<CommandManagerProxy> logger)
+        : base(shared, fallback, logger)
     {
-        _shared   = shared;
-        _fallback = fallback;
-        _current  = fallback;
-        _logger   = logger;
+        _fallbackManager = fallback;
     }
 
-    private ICommandManager Current => Volatile.Read(ref _current);
+    protected override string Identity     => ICommandManager.Identity;
+    protected override string ContractName => "ICommandManager";
 
-    public bool Init()
-    {
-        try
-        {
-            RefreshManager();
+    protected override bool InitFallback()
+        => _fallbackManager.Init();
 
-            return true;
-        }
-        catch (Exception e)
-        {
-            _logger.LogError(e, "Failed to initialize command manager proxy.");
-
-            return false;
-        }
-    }
-
-    public void Shutdown()
-    {
-        if (_fallbackInitialized)
-        {
-            _fallback.Shutdown();
-            _fallbackInitialized = false;
-        }
-    }
-
-    public void RefreshManager()
-    {
-        var external = _shared.GetSharpModuleManager()
-                              .GetOptionalSharpModuleInterface<ICommandManager>(ICommandManager.Identity)
-                              ?.Instance;
-
-        if (external is not null && !ReferenceEquals(external, this))
-        {
-            Use(external, external.GetType().FullName);
-
-            return;
-        }
-
-        UseFallback();
-    }
-
-    public void Use(ICommandManager manager, string? providerName = null)
-    {
-        if (ReferenceEquals(manager, _fallback))
-        {
-            EnsureFallbackInitialized();
-        }
-
-        if (ReferenceEquals(Current, manager))
-        {
-            return;
-        }
-
-        Volatile.Write(ref _current, manager);
-
-        if (!ReferenceEquals(manager, _fallback))
-        {
-            if (!string.IsNullOrWhiteSpace(providerName))
-            {
-                _logger.LogInformation("Using external ICommandManager from {provider}.", providerName);
-            }
-            else
-            {
-                _logger.LogInformation("Using custom ICommandManager instance.");
-            }
-        }
-        else
-        {
-            _logger.LogInformation("Using built-in ICommandManager: {type}",
-                                   _fallback.GetType()
-                                            .FullName);
-        }
-    }
-
-    public void UseFallback()
-        => Use(_fallback);
-
-    private readonly object _fallbackLock = new();
-
-    private void EnsureFallbackInitialized()
-    {
-        if (Volatile.Read(ref _fallbackInitialized))
-        {
-            return;
-        }
-
-        lock (_fallbackLock)
-        {
-            if (_fallbackInitialized)
-            {
-                return;
-            }
-
-            if (!_fallback.Init())
-            {
-                throw new InvalidOperationException("Failed to initialize built-in CommandManager.");
-            }
-
-            Volatile.Write(ref _fallbackInitialized, true);
-        }
-    }
+    protected override void ShutdownFallback()
+        => _fallbackManager.Shutdown();
 
     public void AddClientChatCommand(string command, ICommandManager.ClientCommandDelegate handler)
         => Current.AddClientChatCommand(command, handler);

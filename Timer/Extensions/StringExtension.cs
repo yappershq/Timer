@@ -139,21 +139,5 @@ internal static class StringExtension
 
             return sb.ToString();
         }
-
-        private bool ContainsItem(char delimiter, string target)
-        {
-            var span = value.AsSpan();
-
-            foreach (var chunk in span.Split(delimiter))
-            {
-                if (span[chunk]
-                    .SequenceEqual(target))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
     }
 }

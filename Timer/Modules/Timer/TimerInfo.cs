@@ -27,30 +27,35 @@ namespace Source2Surf.Timer.Modules.Timer;
 
 internal class TimerInfo : ITimerInfo
 {
-    public uint TimerTick { get; set; }
+    // All scalar state lives in this one value; the properties below just forward to it so that
+    // CaptureState/RestoreState are a single struct copy. _state is a field (not a property), so
+    // forwarding setters mutate it in place.
+    private TimerCoreState _state;
 
-    public int TotalMeasures { get; set; }
-    public int GoodSync      { get; set; }
+    public uint TimerTick { get => _state.TimerTick; set => _state.TimerTick = value; }
 
-    public float LastForwardMove { get; set; }
-    public float LastLeftMove    { get; set; }
-    public float LastYaw         { get; set; }
+    public int TotalMeasures { get => _state.TotalMeasures; set => _state.TotalMeasures = value; }
+    public int GoodSync      { get => _state.GoodSync;      set => _state.GoodSync = value; }
 
-    public bool WasOnGround  { get; set; }
-    public int  OnGroundTick { get; set; }
+    public float LastForwardMove { get => _state.LastForwardMove; set => _state.LastForwardMove = value; }
+    public float LastLeftMove    { get => _state.LastLeftMove;    set => _state.LastLeftMove = value; }
+    public float LastYaw         { get => _state.LastYaw;         set => _state.LastYaw = value; }
 
-    public int Jumps   { get; set; }
-    public int Strafes { get; set; }
+    public bool WasOnGround  { get => _state.WasOnGround;  set => _state.WasOnGround = value; }
+    public int  OnGroundTick { get => _state.OnGroundTick; set => _state.OnGroundTick = value; }
 
-    public ETimerStatus Status { get; private set; } = ETimerStatus.Stopped;
+    public int Jumps   { get => _state.Jumps;   set => _state.Jumps = value; }
+    public int Strafes { get => _state.Strafes; set => _state.Strafes = value; }
+
+    public ETimerStatus Status { get => _state.Status; private set => _state.Status = value; }
 
     public float Time => TimerTick * TimerConstants.TickInterval;
 
-    public Vector AvgVelocity   { get; set; }
-    public Vector EndVelocity   { get; set; }
-    public Vector StartVelocity { get; private set; }
+    public Vector AvgVelocity   { get => _state.AvgVelocity;   set => _state.AvgVelocity = value; }
+    public Vector EndVelocity   { get => _state.EndVelocity;   set => _state.EndVelocity = value; }
+    public Vector StartVelocity { get => _state.StartVelocity; private set => _state.StartVelocity = value; }
 
-    public Vector MaxVelocity { get; set; }
+    public Vector MaxVelocity { get => _state.MaxVelocity; set => _state.MaxVelocity = value; }
 
     public float Sync => TotalMeasures > 0 ? GoodSync / (float) TotalMeasures : 1;
 
@@ -127,13 +132,18 @@ internal class TimerInfo : ITimerInfo
 
     public TimerInfo()
     {
+        // Seed the fields Reset() deliberately leaves alone. EZoneType.Invalid is -1, so a
+        // default-initialized _state would have InZone = 0, not Invalid.
+        _state.Status = ETimerStatus.Stopped;
+        _state.InZone = EZoneType.Invalid;
+
         Reset(true);
     }
 
     private List<CheckpointInfo> CheckpointInfoInternal { get; } = [];
 
     // ITimerInfo
-    public int Checkpoint { get; set; } = 0;
+    public int Checkpoint { get => _state.Checkpoint; set => _state.Checkpoint = value; }
 
     public IReadOnlyList<CheckpointInfo> Checkpoints => CheckpointInfoInternal;
 
@@ -149,9 +159,9 @@ internal class TimerInfo : ITimerInfo
         Track = Math.Max(track, 0);
     }
 
-    public EZoneType InZone { get; private set; } = EZoneType.Invalid;
-    public int       Style  { get; private set; } = 0;
-    public int       Track  { get; private set; }
+    public EZoneType InZone { get => _state.InZone; private set => _state.InZone = value; }
+    public int       Style  { get => _state.Style;  private set => _state.Style = value; }
+    public int       Track  { get => _state.Track;  private set => _state.Track = value; }
 
     public CheckpointInfo? CurrentCheckpointInfo { get; set; }
 
@@ -180,6 +190,64 @@ internal class TimerInfo : ITimerInfo
     {
         CheckpointInfoInternal.Add(info);
     }
+
+    internal virtual TimerStateSnapshot CaptureState()
+        => new ()
+        {
+            State                 = _state,
+            Checkpoints           = CloneCheckpoints(CheckpointInfoInternal),
+            CurrentCheckpointInfo = CloneCheckpoint(CurrentCheckpointInfo),
+        };
+
+    internal virtual void RestoreState(TimerStateSnapshot snapshot)
+    {
+        _state = snapshot.State;
+
+        CheckpointInfoInternal.Clear();
+
+        foreach (var cp in snapshot.Checkpoints)
+        {
+            if (CloneCheckpoint(cp) is { } cloned)
+            {
+                CheckpointInfoInternal.Add(cloned);
+            }
+        }
+
+        CurrentCheckpointInfo = CloneCheckpoint(snapshot.CurrentCheckpointInfo);
+    }
+
+    private static List<CheckpointInfo> CloneCheckpoints(IReadOnlyList<CheckpointInfo> source)
+    {
+        var copy = new List<CheckpointInfo>(source.Count);
+
+        foreach (var cp in source)
+        {
+            if (CloneCheckpoint(cp) is { } cloned)
+            {
+                copy.Add(cloned);
+            }
+        }
+
+        return copy;
+    }
+
+    private static CheckpointInfo? CloneCheckpoint(CheckpointInfo? source)
+    {
+        if (source is null)
+        {
+            return null;
+        }
+
+        return new CheckpointInfo
+        {
+            TimerTick       = source.TimerTick,
+            Sync            = source.Sync,
+            StartVelocity   = source.StartVelocity,
+            AverageVelocity = source.AverageVelocity,
+            MaxVelocity     = source.MaxVelocity,
+            EndVelocity     = source.EndVelocity,
+        };
+    }
 }
 
 internal class StageTimerInfo : TimerInfo, IStageTimerInfo
@@ -191,5 +259,28 @@ internal class StageTimerInfo : TimerInfo, IStageTimerInfo
     {
         base.StartTimer(track, velocity);
         Stage = stage;
+    }
+
+    internal override TimerStateSnapshot CaptureState()
+    {
+        var baseSnapshot = base.CaptureState();
+
+        return new StageTimerStateSnapshot
+        {
+            State                 = baseSnapshot.State,
+            Checkpoints           = baseSnapshot.Checkpoints,
+            CurrentCheckpointInfo = baseSnapshot.CurrentCheckpointInfo,
+            Stage                 = Stage,
+        };
+    }
+
+    internal override void RestoreState(TimerStateSnapshot snapshot)
+    {
+        base.RestoreState(snapshot);
+
+        if (snapshot is StageTimerStateSnapshot stageSnapshot)
+        {
+            Stage = stageSnapshot.Stage;
+        }
     }
 }

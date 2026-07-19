@@ -24,24 +24,29 @@ using Sharp.Shared.Enums;
 using Sharp.Shared.Types;
 using Sharp.Shared.Units;
 using Source2Surf.Timer.Extensions;
+using Source2Surf.Timer.Shared;
+using Source2Surf.Timer.Utilities;
 
 // ReSharper disable once CheckNamespace
 namespace Source2Surf.Timer.Modules;
 
 internal partial class RecordModule
 {
+    private (int style, int track) GetStyleTrack(PlayerSlot slot)
+    {
+        var timerInfo = _timerModule.GetTimerInfo(slot);
+
+        return (timerInfo?.Style ?? 0, timerInfo?.Track ?? 0);
+    }
 
     private ECommandAction OnCommandStageWR(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
-        var track     = timerInfo?.Track ?? 0;
+        var (style, track) = GetStyleTrack(slot);
 
         var stage = command.TryGet<byte>(1) is { } s ? (int)s : 0;
 
@@ -65,9 +70,7 @@ internal partial class RecordModule
             sb.Append("Stage ");
             sb.Append(stage);
             sb.Append(" WR: ");
-            sb.Append(ChatColor.LightGreen);
-            Utils.FormatTime(ref sb, wr.Time, true);
-            sb.Append(ChatColor.White);
+            Utils.AppendColoredTime(ref sb, wr.Time);
             sb.Append(" by ");
             sb.Append(ChatColor.LightGreen);
             sb.Append(wr.PlayerName);
@@ -85,14 +88,12 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandBonusTop(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
+        var (style, _) = GetStyleTrack(slot);
 
         var bonus = command.TryGet<byte>(1) is { } b ? (int)b : 1;
 
@@ -123,9 +124,7 @@ internal partial class RecordModule
                 sb.Append('#');
                 sb.Append(i + 1);
                 sb.Append(": ");
-                sb.Append(ChatColor.LightGreen);
-                Utils.FormatTime(ref sb, rec.Time, true);
-                sb.Append(ChatColor.White);
+                Utils.AppendColoredTime(ref sb, rec.Time);
                 sb.Append(" - ");
                 sb.Append(ChatColor.LightGreen);
                 sb.Append(rec.PlayerName);
@@ -144,14 +143,12 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandBonusWR(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
+        var (style, _) = GetStyleTrack(slot);
 
         var bonus = command.TryGet<byte>(1) is { } b ? (int)b : 1;
 
@@ -175,9 +172,7 @@ internal partial class RecordModule
             sb.Append("Bonus ");
             sb.Append(bonus);
             sb.Append(" WR: ");
-            sb.Append(ChatColor.LightGreen);
-            Utils.FormatTime(ref sb, wr.Time, true);
-            sb.Append(ChatColor.White);
+            Utils.AppendColoredTime(ref sb, wr.Time);
             sb.Append(" by ");
             sb.Append(ChatColor.LightGreen);
             sb.Append(wr.PlayerName);
@@ -195,18 +190,16 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandBonusPB(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
+        var (style, _) = GetStyleTrack(slot);
 
         var bonus = command.TryGet<byte>(1) is { } b ? (int)b : 1;
 
-        if (bonus < 1)
+        if (bonus < 1 || bonus >= TimerConstants.MAX_TRACK)
         {
             controller.PrintToChat("Usage: !bpb [bonus]");
             return ECommandAction.Handled;
@@ -221,14 +214,7 @@ internal partial class RecordModule
         }
 
         var records = _mapCache.GetRecords(style, bonus);
-        var rank    = 1;
-        for (var i = 0; i < records.Count; i++)
-        {
-            if (records[i].Time < pb.Time)
-                rank = i + 2;
-            else
-                break;
-        }
+        var rank    = _mapCache.GetRankForTime(style, bonus, pb.Time);
 
         var sb = ZString.CreateStringBuilder(true);
         try
@@ -236,9 +222,7 @@ internal partial class RecordModule
             sb.Append("Bonus ");
             sb.Append(bonus);
             sb.Append(" PB: ");
-            sb.Append(ChatColor.LightGreen);
-            Utils.FormatTime(ref sb, pb.Time, true);
-            sb.Append(ChatColor.White);
+            Utils.AppendColoredTime(ref sb, pb.Time);
             sb.Append(" (#");
             sb.Append(rank);
             sb.Append('/');
@@ -257,15 +241,12 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandStagePB(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
-        var track     = timerInfo?.Track ?? 0;
+        var (style, track) = GetStyleTrack(slot);
 
         var stage = command.TryGet<byte>(1) is { } s ? (int)s : 0;
 
@@ -291,26 +272,12 @@ internal partial class RecordModule
             sb.Append("Stage ");
             sb.Append(stage);
             sb.Append(" PB: ");
-            sb.Append(ChatColor.LightGreen);
-            Utils.FormatTime(ref sb, pb.Time, true);
-            sb.Append(ChatColor.White);
+            Utils.AppendColoredTime(ref sb, pb.Time);
 
             if (wr is not null)
             {
-                var delta = pb.Time - wr.Time;
                 sb.Append(" (WR ");
-                if (delta >= 0f)
-                {
-                    sb.Append(ChatColor.Red);
-                    sb.Append('+');
-                }
-                else
-                {
-                    sb.Append(ChatColor.LightGreen);
-                    sb.Append('-');
-                }
-                Utils.FormatTime(ref sb, MathF.Abs(delta), true);
-                sb.Append(ChatColor.White);
+                Utils.AppendSignedDelta(ref sb, pb.Time - wr.Time);
                 sb.Append(')');
             }
 
@@ -326,7 +293,7 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandClearRecords(StringCommand stringCommand)
     {
-        _request.RemoveMapRecords(_bridge.GlobalVars.MapName);
+        _request.RemoveMapRecords(_bridge.CurrentMapName);
 
         _mapCache.Clear();
         _playerCache.ClearAll();
@@ -336,15 +303,12 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandWR(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
-        var track     = timerInfo?.Track ?? 0;
+        var (style, track) = GetStyleTrack(slot);
 
         var wr = GetWR(style, track);
 
@@ -358,9 +322,7 @@ internal partial class RecordModule
         try
         {
             sb.Append("WR: ");
-            sb.Append(ChatColor.LightGreen);
-            Utils.FormatTime(ref sb, wr.Time, true);
-            sb.Append(ChatColor.White);
+            Utils.AppendColoredTime(ref sb, wr.Time);
 
             controller.PrintToChat(sb.ToString());
         }
@@ -374,15 +336,12 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandPB(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
-        var track     = timerInfo?.Track ?? 0;
+        var (style, track) = GetStyleTrack(slot);
 
         var pb = GetPlayerRecord(slot, style, track);
 
@@ -399,9 +358,7 @@ internal partial class RecordModule
         try
         {
             sb.Append("PB: ");
-            sb.Append(ChatColor.LightGreen);
-            Utils.FormatTime(ref sb, pb.Time, true);
-            sb.Append(ChatColor.White);
+            Utils.AppendColoredTime(ref sb, pb.Time);
             sb.Append(" (#");
             sb.Append(rank);
             sb.Append('/');
@@ -420,15 +377,12 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandRank(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
-        var track     = timerInfo?.Track ?? 0;
+        var (style, track) = GetStyleTrack(slot);
 
         var pb = GetPlayerRecord(slot, style, track);
 
@@ -452,9 +406,7 @@ internal partial class RecordModule
             sb.Append('/');
             sb.Append(total);
             sb.Append(" | PB: ");
-            sb.Append(ChatColor.LightGreen);
-            Utils.FormatTime(ref sb, pb.Time, true);
-            sb.Append(ChatColor.White);
+            Utils.AppendColoredTime(ref sb, pb.Time);
 
             controller.PrintToChat(sb.ToString());
         }
@@ -468,15 +420,12 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandTop(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
-        var track     = timerInfo?.Track ?? 0;
+        var (style, track) = GetStyleTrack(slot);
 
         var wr = GetWR(style, track);
 
@@ -492,9 +441,7 @@ internal partial class RecordModule
         try
         {
             sb.Append("#1: ");
-            sb.Append(ChatColor.LightGreen);
-            Utils.FormatTime(ref sb, wr.Time, true);
-            sb.Append(ChatColor.White);
+            Utils.AppendColoredTime(ref sb, wr.Time);
             sb.Append(" (");
             sb.Append(total);
             sb.Append(" records)");
@@ -511,15 +458,12 @@ internal partial class RecordModule
 
     private ECommandAction OnCommandCpr(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetController(slot, out var controller))
         {
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
-        var track     = timerInfo?.Track ?? 0;
+        var (style, track) = GetStyleTrack(slot);
 
         var pb = GetPlayerRecord(slot, style, track);
 
@@ -537,118 +481,72 @@ internal partial class RecordModule
             return ECommandAction.Handled;
         }
 
-        // Load PB checkpoints from DB
-        Task.Run(async () =>
-        {
-            try
-            {
-                var pbCheckpoints = await RetryHelper.RetryAsync(
-                    () => _request.GetRecordCheckpoints(pb.Id),
-                    RetryHelper.IsTransient, _logger, "GetRecordCheckpoints"
-                ).ConfigureAwait(false);
+        AsyncChatCommand.Run(_bridge, _logger, slot, "GetRecordCheckpoints",
+                             () => _request.GetRecordCheckpoints(pb.Id),
+                             (ctrl, pbCheckpoints) =>
+                             {
+                                 if (pbCheckpoints.Count == 0)
+                                 {
+                                     ctrl.PrintToChat("No checkpoint data for your PB.");
 
-                await _bridge.ModSharp.InvokeFrameActionAsync(() =>
-                {
-                    if (pbCheckpoints.Count == 0)
-                    {
-                        controller.PrintToChat("No checkpoint data for your PB.");
-                        return;
-                    }
+                                     return;
+                                 }
 
-                    var count = Math.Min(pbCheckpoints.Count, wrCheckpoints.Count);
+                                 var count = Math.Min(pbCheckpoints.Count, wrCheckpoints.Count);
 
-                    controller.PrintToChat("PB vs WR checkpoints:");
+                                 ctrl.PrintToChat("PB vs WR checkpoints:");
 
-                    for (var i = 0; i < count; i++)
-                    {
-                        var pbCp  = pbCheckpoints[i];
-                        var wrCp  = wrCheckpoints[i];
-                        var delta = pbCp.Time - wrCp.Time;
+                                 for (var i = 0; i < count; i++)
+                                 {
+                                     var pbCp = pbCheckpoints[i];
+                                     var wrCp = wrCheckpoints[i];
 
-                        var sb = ZString.CreateStringBuilder(true);
-                        try
-                        {
-                            sb.Append("CP");
-                            sb.Append(i + 1);
-                            sb.Append(": ");
-                            sb.Append(ChatColor.LightGreen);
-                            Utils.FormatTime(ref sb, pbCp.Time, true);
-                            sb.Append(ChatColor.White);
-                            sb.Append(" | WR ");
+                                     var sb = ZString.CreateStringBuilder(true);
+                                     try
+                                     {
+                                         sb.Append("CP");
+                                         sb.Append(i + 1);
+                                         sb.Append(": ");
+                                         Utils.AppendColoredTime(ref sb, pbCp.Time);
+                                         sb.Append(" | WR ");
+                                         Utils.AppendSignedDelta(ref sb, pbCp.Time - wrCp.Time);
 
-                            if (delta >= 0f)
-                            {
-                                sb.Append(ChatColor.Red);
-                                sb.Append('+');
-                            }
-                            else
-                            {
-                                sb.Append(ChatColor.LightGreen);
-                                sb.Append('-');
-                            }
+                                         ctrl.PrintToChat(sb.ToString());
+                                     }
+                                     finally
+                                     {
+                                         sb.Dispose();
+                                     }
+                                 }
 
-                            Utils.FormatTime(ref sb, MathF.Abs(delta), true);
-                            sb.Append(ChatColor.White);
+                                 // Final time diff
+                                 if (GetWR(style, track) is not { } wr)
+                                 {
+                                     return;
+                                 }
 
-                            controller.PrintToChat(sb.ToString());
-                        }
-                        finally
-                        {
-                            sb.Dispose();
-                        }
-                    }
+                                 var sb2 = ZString.CreateStringBuilder(true);
+                                 try
+                                 {
+                                     sb2.Append("Final: ");
+                                     Utils.AppendColoredTime(ref sb2, pb.Time);
+                                     sb2.Append(" | WR ");
+                                     Utils.AppendSignedDelta(ref sb2, pb.Time - wr.Time);
 
-                    // Final time diff
-                    var wr = GetWR(style, track);
-
-                    if (wr is not null)
-                    {
-                        var finalDelta = pb.Time - wr.Time;
-                        var sb2 = ZString.CreateStringBuilder(true);
-                        try
-                        {
-                            sb2.Append("Final: ");
-                            sb2.Append(ChatColor.LightGreen);
-                            Utils.FormatTime(ref sb2, pb.Time, true);
-                            sb2.Append(ChatColor.White);
-                            sb2.Append(" | WR ");
-
-                            if (finalDelta >= 0f)
-                            {
-                                sb2.Append(ChatColor.Red);
-                                sb2.Append('+');
-                            }
-                            else
-                            {
-                                sb2.Append(ChatColor.LightGreen);
-                                sb2.Append('-');
-                            }
-
-                            Utils.FormatTime(ref sb2, MathF.Abs(finalDelta), true);
-                            sb2.Append(ChatColor.White);
-
-                            controller.PrintToChat(sb2.ToString());
-                        }
-                        finally
-                        {
-                            sb2.Dispose();
-                        }
-                    }
-                });
-            }
-            catch (Exception e)
-            {
-                _logger.LogError(e, "Error when fetching checkpoint comparison");
-            }
-        }, _bridge.CancellationToken);
+                                     ctrl.PrintToChat(sb2.ToString());
+                                 }
+                                 finally
+                                 {
+                                     sb2.Dispose();
+                                 }
+                             });
 
         return ECommandAction.Handled;
     }
 
     private ECommandAction OnCommandProfile(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetClientController(slot, out var client, out var controller))
         {
             return ECommandAction.Handled;
         }
@@ -661,10 +559,8 @@ internal partial class RecordModule
             return ECommandAction.Handled;
         }
 
-        var timerInfo = _timerModule.GetTimerInfo(slot);
-        var style     = timerInfo?.Style ?? 0;
-        var track     = timerInfo?.Track ?? 0;
-        var steamId   = client.SteamId;
+        var (style, track) = GetStyleTrack(slot);
+        var steamId        = client.SteamId;
 
         // PB + rank (sync, from cache)
         var pb    = GetPlayerRecord(slot, style, track);
@@ -681,9 +577,7 @@ internal partial class RecordModule
                     var rank  = GetRankForTime(style, track, pb.Time);
                     var total = GetTotalRecordCount(style, track);
 
-                    sb.Append(ChatColor.LightGreen);
-                    Utils.FormatTime(ref sb, pb.Time, true);
-                    sb.Append(ChatColor.White);
+                    Utils.AppendColoredTime(ref sb, pb.Time);
                     sb.Append(" (#");
                     sb.Append(rank);
                     sb.Append('/');
@@ -705,144 +599,117 @@ internal partial class RecordModule
             }
         }
 
-        // Fetch points rank from DB
-        Task.Run(async () =>
-        {
-            try
-            {
-                var (pointsRank, totalRanked) = await RetryHelper.RetryAsync(
-                    () => _request.GetPlayerPointsRank(steamId),
-                    RetryHelper.IsTransient, _logger, "GetPlayerPointsRank"
-                ).ConfigureAwait(false);
+        AsyncChatCommand.Run(_bridge, _logger, slot, "GetPlayerPointsRank",
+                             () => _request.GetPlayerPointsRank(steamId),
+                             (ctrl, pointsRankResult) =>
+                             {
+                                 var (pointsRank, totalRanked) = pointsRankResult;
 
-                await _bridge.ModSharp.InvokeFrameActionAsync(() =>
-                {
-                    // Line 1: Player name + Points + Rank
-                    var sb1 = ZString.CreateStringBuilder(true);
-                    try
-                    {
-                        sb1.Append("Player: ");
-                        sb1.Append(ChatColor.LightGreen);
-                        sb1.Append(profile.Name);
-                        sb1.Append(ChatColor.White);
-                        sb1.Append(" | Points: ");
-                        sb1.Append(ChatColor.LightGreen);
-                        sb1.Append(profile.Points);
-                        sb1.Append(ChatColor.White);
+                                 // Line 1: Player name + Points + Rank
+                                 var sb1 = ZString.CreateStringBuilder(true);
+                                 try
+                                 {
+                                     sb1.Append("Player: ");
+                                     sb1.Append(ChatColor.LightGreen);
+                                     sb1.Append(profile.Name);
+                                     sb1.Append(ChatColor.White);
+                                     sb1.Append(" | Points: ");
+                                     sb1.Append(ChatColor.LightGreen);
+                                     sb1.Append(profile.Points);
+                                     sb1.Append(ChatColor.White);
 
-                        if (pointsRank > 0)
-                        {
-                            sb1.Append(" (#");
-                            sb1.Append(pointsRank);
-                            sb1.Append('/');
-                            sb1.Append(totalRanked);
-                            sb1.Append(')');
-                        }
+                                     if (pointsRank > 0)
+                                     {
+                                         sb1.Append(" (#");
+                                         sb1.Append(pointsRank);
+                                         sb1.Append('/');
+                                         sb1.Append(totalRanked);
+                                         sb1.Append(')');
+                                     }
 
-                        controller.PrintToChat(sb1.ToString());
-                    }
-                    finally
-                    {
-                        sb1.Dispose();
-                    }
+                                     ctrl.PrintToChat(sb1.ToString());
+                                 }
+                                 finally
+                                 {
+                                     sb1.Dispose();
+                                 }
 
-                    // Line 2: Map PB + Rank
-                    controller.PrintToChat(pbStr);
+                                 // Line 2: Map PB + Rank
+                                 ctrl.PrintToChat(pbStr);
 
-                    // Line 3: Join date + Last seen
-                    var sb3 = ZString.CreateStringBuilder(true);
-                    try
-                    {
-                        sb3.Append("Joined: ");
-                        sb3.Append(ChatColor.Grey);
-                        sb3.Append(profile.JoinDate.ToString("yyyy-MM-dd"));
-                        sb3.Append(ChatColor.White);
-                        sb3.Append(" | Last seen: ");
-                        sb3.Append(ChatColor.Grey);
-                        sb3.Append(profile.LastSeenDate.ToString("yyyy-MM-dd"));
-                        sb3.Append(ChatColor.White);
+                                 // Line 3: Join date + Last seen
+                                 var sb3 = ZString.CreateStringBuilder(true);
+                                 try
+                                 {
+                                     sb3.Append("Joined: ");
+                                     sb3.Append(ChatColor.Grey);
+                                     sb3.Append(profile.JoinDate.ToString("yyyy-MM-dd"));
+                                     sb3.Append(ChatColor.White);
+                                     sb3.Append(" | Last seen: ");
+                                     sb3.Append(ChatColor.Grey);
+                                     sb3.Append(profile.LastSeenDate.ToString("yyyy-MM-dd"));
+                                     sb3.Append(ChatColor.White);
 
-                        controller.PrintToChat(sb3.ToString());
-                    }
-                    finally
-                    {
-                        sb3.Dispose();
-                    }
-                });
-            }
-            catch (Exception e)
-            {
-                _logger.LogError(e, "Error when fetching player profile rank");
-            }
-        }, _bridge.CancellationToken);
+                                     ctrl.PrintToChat(sb3.ToString());
+                                 }
+                                 finally
+                                 {
+                                     sb3.Dispose();
+                                 }
+                             });
 
         return ECommandAction.Handled;
     }
 
     private ECommandAction OnCommandRecent(PlayerSlot slot, StringCommand command)
     {
-        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
-            || client.GetPlayerController() is not { IsValidEntity: true } controller)
+        if (!_bridge.TryGetClientController(slot, out var client, out _))
         {
             return ECommandAction.Handled;
         }
 
-        var mapName = _bridge.GlobalVars.MapName;
+        var mapName = _bridge.CurrentMapName;
         var steamId = client.SteamId;
 
-        Task.Run(async () =>
-        {
-            try
-            {
-                var records = await RetryHelper.RetryAsync(
-                    () => _request.GetRecentRecords(mapName, steamId),
-                    RetryHelper.IsTransient, _logger, "GetRecentRecords"
-                ).ConfigureAwait(false);
+        AsyncChatCommand.Run(_bridge, _logger, slot, "GetRecentRecords",
+                             () => _request.GetRecentRecords(mapName, steamId),
+                             (ctrl, records) =>
+                             {
+                                 if (records.Count == 0)
+                                 {
+                                     ctrl.PrintToChat("No recent records.");
 
-                await _bridge.ModSharp.InvokeFrameActionAsync(() =>
-                {
-                    if (records.Count == 0)
-                    {
-                        controller.PrintToChat("No recent records.");
-                        return;
-                    }
+                                     return;
+                                 }
 
-                    controller.PrintToChat("Recent records:");
+                                 ctrl.PrintToChat("Recent records:");
 
-                    foreach (var record in records)
-                    {
-                        var sb = ZString.CreateStringBuilder(true);
-                        try
-                        {
-                            sb.Append(ChatColor.LightGreen);
-                            Utils.FormatTime(ref sb, record.Time, true);
-                            sb.Append(ChatColor.White);
+                                 foreach (var record in records)
+                                 {
+                                     var sb = ZString.CreateStringBuilder(true);
+                                     try
+                                     {
+                                         Utils.AppendColoredTime(ref sb, record.Time);
 
-                            if (record.Track > 0)
-                            {
-                                sb.Append(" B");
-                                sb.Append(record.Track);
-                            }
+                                         if (record.Track > 0)
+                                         {
+                                             sb.Append(" B");
+                                             sb.Append(record.Track);
+                                         }
 
-                            sb.Append(" | ");
-                            sb.Append(ChatColor.Grey);
-                            sb.Append(record.RunDate.ToString("MM-dd HH:mm"));
-                            sb.Append(ChatColor.White);
+                                         sb.Append(" | ");
+                                         sb.Append(ChatColor.Grey);
+                                         sb.Append(record.RunDate.ToString("MM-dd HH:mm"));
+                                         sb.Append(ChatColor.White);
 
-                            controller.PrintToChat(sb.ToString());
-                        }
-                        finally
-                        {
-                            sb.Dispose();
-                        }
-                    }
-                });
-            }
-            catch (Exception e)
-            {
-                _logger.LogError(e, "Error when fetching recent records");
-            }
-        }, _bridge.CancellationToken);
+                                         ctrl.PrintToChat(sb.ToString());
+                                     }
+                                     finally
+                                     {
+                                         sb.Dispose();
+                                     }
+                                 }
+                             });
 
         return ECommandAction.Handled;
     }

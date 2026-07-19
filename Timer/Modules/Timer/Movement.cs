@@ -84,7 +84,7 @@ internal partial class TimerModule
             // Check each timer independently based on which zone the player is in
             if (inMainStartZone
                 && timerInfo.WasOnGround
-                && timerInfo.OnGroundTick <= 10
+                && timerInfo.OnGroundTick <= PrejumpGraceTicks
                 && timerInfo.Jumps        >= maxJumps)
             {
                 timerInfo.Jumps = 0;
@@ -93,7 +93,7 @@ internal partial class TimerModule
 
             if (inStageStartZone
                 && stageTimer.WasOnGround
-                && stageTimer.OnGroundTick <= 10
+                && stageTimer.OnGroundTick <= PrejumpGraceTicks
                 && stageTimer.Jumps        >= maxJumps)
             {
                 stageTimer.Jumps = 0;
@@ -170,7 +170,7 @@ internal partial class TimerModule
             var collision = pawn.GetCollisionProperty()!;
 
             var end = origin;
-            end.Z -= 54;
+            end.Z -= SurfTraceDepth;
 
             var attribute = RnQueryShapeAttr.PlayerMovement(collision.CollisionAttribute.InteractsWith);
             attribute.SetEntityToIgnore(pawn, 0);

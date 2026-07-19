@@ -29,6 +29,12 @@ internal sealed class FallbackReplayRecord
     public required string TempFilePath { get; init; }
 
     /// <summary>
+    /// Map name captured when the replay was recorded. Used to build the final replay path so a
+    /// late record-saved event arriving after a map change still writes under the correct map.
+    /// </summary>
+    public required string MapName { get; init; }
+
+    /// <summary>
     /// Background write task — must be awaited before File.Move or File.ReadAllBytes.
     /// </summary>
     public required Task WriteTask { get; init; }

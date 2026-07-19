@@ -23,7 +23,7 @@ internal sealed class HttpReplayStorage : IReplayStorage
         var url = $"{_baseUrl}/{key}";
 
         using var content  = new ByteArrayContent(data);
-        var       response = await _httpClient.PutAsync(url, content);
+        using var response = await _httpClient.PutAsync(url, content);
 
         response.EnsureSuccessStatusCode();
 
@@ -39,7 +39,7 @@ internal sealed class HttpReplayStorage : IReplayStorage
     {
         try
         {
-            var response = await _httpClient.DeleteAsync(url);
+            using var response = await _httpClient.DeleteAsync(url);
             response.EnsureSuccessStatusCode();
         }
         catch (HttpRequestException)

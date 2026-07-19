@@ -23,5 +23,12 @@ internal sealed class PendingReplay
 {
     public required ReplaySaveSnapshot Snapshot { get; init; }
     public required string TempFilePath { get; init; }
+
+    /// <summary>
+    /// Map name captured when the replay was recorded. Used to build the final replay path so a
+    /// record-saved event arriving after a map change still writes under the correct map.
+    /// </summary>
+    public required string MapName { get; init; }
+
     public Guid? TimeoutTimerId { get; set; }
 }

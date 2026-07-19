@@ -109,33 +109,15 @@ internal class MessageModule : IModule, IMessageModule, IRecordModuleListener, I
             sb.Append("CP");
             sb.Append(checkpoint);
             sb.Append(": ");
-            sb.Append(ChatColor.LightGreen);
-            Utils.FormatTime(ref sb, timerInfo.Time, true);
-            sb.Append(ChatColor.White);
+            Utils.AppendColoredTime(ref sb, timerInfo.Time);
 
             // WR checkpoint diff
             var wrCheckpoints = _recordModule.GetWRCheckpoints(timerInfo.Style, timerInfo.Track);
 
             if (wrCheckpoints is { Count: > 0 } && checkpoint >= 1 && checkpoint <= wrCheckpoints.Count)
             {
-                var wrCpTime = wrCheckpoints[checkpoint - 1].Time;
-                var delta    = timerInfo.Time - wrCpTime;
-
                 sb.Append(" | WR ");
-
-                if (delta >= 0f)
-                {
-                    sb.Append(ChatColor.Red);
-                    sb.Append('+');
-                }
-                else
-                {
-                    sb.Append(ChatColor.LightGreen);
-                    sb.Append('-');
-                }
-
-                Utils.FormatTime(ref sb, MathF.Abs(delta), true);
-                sb.Append(ChatColor.White);
+                Utils.AppendSignedDelta(ref sb, timerInfo.Time - wrCheckpoints[checkpoint - 1].Time);
             }
 
             // PB checkpoint comparison would require caching PB checkpoints separately.

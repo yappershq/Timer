@@ -62,4 +62,97 @@ internal sealed class ListenerHub<T> where T : class
         _listeners.Clear();
         Snapshot = [];
     }
+
+    /// <summary>
+    ///     Invokes <paramref name="action" /> on every registered listener, logging (never
+    ///     propagating) per-listener exceptions. Pass a static lambda and explicit args to
+    ///     keep the dispatch closure-free.
+    /// </summary>
+    public void NotifyAll(string name, Action<T> action)
+    {
+        foreach (var listener in Snapshot)
+        {
+            try
+            {
+                action(listener);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Error when calling {name} listener", name);
+            }
+        }
+    }
+
+    /// <inheritdoc cref="NotifyAll(string, Action{T})" />
+    public void NotifyAll<T1>(string name, Action<T, T1> action, T1 arg1)
+    {
+        foreach (var listener in Snapshot)
+        {
+            try
+            {
+                action(listener, arg1);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Error when calling {name} listener", name);
+            }
+        }
+    }
+
+    /// <inheritdoc cref="NotifyAll(string, Action{T})" />
+    public void NotifyAll<T1, T2, T3>(string name, Action<T, T1, T2, T3> action, T1 arg1, T2 arg2, T3 arg3)
+    {
+        foreach (var listener in Snapshot)
+        {
+            try
+            {
+                action(listener, arg1, arg2, arg3);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Error when calling {name} listener", name);
+            }
+        }
+    }
+
+    /// <inheritdoc cref="NotifyAll(string, Action{T})" />
+    public void NotifyAll<T1, T2, T3, T4>(string name, Action<T, T1, T2, T3, T4> action, T1 arg1, T2 arg2, T3 arg3, T4 arg4)
+    {
+        foreach (var listener in Snapshot)
+        {
+            try
+            {
+                action(listener, arg1, arg2, arg3, arg4);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Error when calling {name} listener", name);
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Returns false as soon as any listener's <paramref name="predicate" /> returns
+    ///     false. A throwing listener is logged and treated as consenting (true), matching
+    ///     the historical hand-rolled loops.
+    /// </summary>
+    public bool All<T1, T2>(string name, Func<T, T1, T2, bool> predicate, T1 arg1, T2 arg2)
+    {
+        foreach (var listener in Snapshot)
+        {
+            try
+            {
+                if (!predicate(listener, arg1, arg2))
+                {
+                    return false;
+                }
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Error when calling {name} listener", name);
+            }
+        }
+
+        return true;
+    }
 }

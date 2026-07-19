@@ -125,17 +125,26 @@ internal class MeshPerimeterExtractor
         // m_Faces is a flat byte array where each byte is a starting half-edge index for one face.
         foreach (var startEdgeIndex in fBytes)
         {
+            if (startEdgeIndex >= edges.Length)
+                continue;
+
             var currentEdgeIndex = startEdgeIndex;
             var faceVertices     = new List<Vector>();
 
-            // First pass: Collect vertices and SNAP them
-            do
+            // First pass: Collect vertices and SNAP them (guard caps iteration so a corrupt chain can't spin forever)
+            for (var guard = 0; guard < edges.Length; guard++)
             {
                 var currentEdge = edges[currentEdgeIndex];
+
+                if (currentEdge.OriginVertex >= positions.Length)
+                    break;
+
                 faceVertices.Add(snap(positions[currentEdge.OriginVertex]));
                 currentEdgeIndex = currentEdge.Next;
+
+                if (currentEdgeIndex >= edges.Length || currentEdgeIndex == startEdgeIndex)
+                    break;
             }
-            while (currentEdgeIndex != startEdgeIndex);
 
             if (faceVertices.Count < 3)
                 continue;
@@ -175,11 +184,18 @@ internal class MeshPerimeterExtractor
         var positions = MemoryMarshal.Cast<byte, Vector>(vBytes);
         var indices   = MemoryMarshal.Cast<byte, int>(iBytes);
 
-        for (var t = 0; t < indices.Length; t += 3)
+        for (var t = 0; t + 2 < indices.Length; t += 3)
         {
-            var v0 = snap(positions[indices[t]]);
-            var v1 = snap(positions[indices[t + 1]]);
-            var v2 = snap(positions[indices[t + 2]]);
+            int i0 = indices[t], i1 = indices[t + 1], i2 = indices[t + 2];
+
+            if ((uint) i0 >= (uint) positions.Length
+                || (uint) i1 >= (uint) positions.Length
+                || (uint) i2 >= (uint) positions.Length)
+                continue;
+
+            var v0 = snap(positions[i0]);
+            var v1 = snap(positions[i1]);
+            var v2 = snap(positions[i2]);
 
             var faceNormal = CalculateSurfaceNormal(v0, v1, v2);
             var edges      = new[] { new Edge(v0, v1), new Edge(v1, v2), new Edge(v2, v0) };

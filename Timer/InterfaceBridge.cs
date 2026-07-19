@@ -15,12 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-using System;
 using System.IO;
 using System.Threading;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Sharp.Shared;
 using Sharp.Shared.Managers;
 using Sharp.Shared.Objects;
@@ -53,26 +50,10 @@ internal interface IManager
 
 internal class InterfaceBridge
 {
-    private readonly Timer _entrypoint;
-
-    public InterfaceBridge(Timer entrypoint,
-        string                   dllPath,
-        string                   sharpPath,
-        Version                  version,
-        ISharedSystem            sharedSystem,
-        IConfiguration           coreConfig,
-        bool                     hotReload,
-        CancellationToken        token,
-        bool                     debug)
+    public InterfaceBridge(string sharpPath, ISharedSystem sharedSystem, CancellationToken token)
     {
-        _entrypoint       = entrypoint;
-        DllPath           = dllPath;
         SharpPath         = sharpPath;
-        Version           = version;
-        CoreConfig        = coreConfig;
-        HotReload         = hotReload;
         CancellationToken = token;
-        Debug             = debug;
 
         TimerDataPath = Path.Combine(sharpPath, "data", "surftimer");
 
@@ -81,56 +62,40 @@ internal class InterfaceBridge
             Directory.CreateDirectory(TimerDataPath);
         }
 
-        ModSharp             = sharedSystem.GetModSharp();
-        ConVarManager        = sharedSystem.GetConVarManager();
-        EventManager         = sharedSystem.GetEventManager();
-        ClientManager        = sharedSystem.GetClientManager();
-        EntityManager        = sharedSystem.GetEntityManager();
-        FileManager          = sharedSystem.GetFileManager();
-        HookManager          = sharedSystem.GetHookManager();
-        SchemaManager        = sharedSystem.GetSchemaManager();
-        TransmitManager      = sharedSystem.GetTransmitManager();
-        PhysicsQueryManager  = sharedSystem.GetPhysicsQueryManager();
-        LoggerFactory        = sharedSystem.GetLoggerFactory();
-        Modules              = sharedSystem.GetLibraryModuleManager();
-        LibraryModuleManager = sharedSystem.GetLibraryModuleManager();
+        ModSharp            = sharedSystem.GetModSharp();
+        ConVarManager       = sharedSystem.GetConVarManager();
+        EventManager        = sharedSystem.GetEventManager();
+        ClientManager       = sharedSystem.GetClientManager();
+        EntityManager       = sharedSystem.GetEntityManager();
+        HookManager         = sharedSystem.GetHookManager();
+        SchemaManager       = sharedSystem.GetSchemaManager();
+        PhysicsQueryManager = sharedSystem.GetPhysicsQueryManager();
+        Modules             = sharedSystem.GetLibraryModuleManager();
     }
-
-    public string DllPath { get; }
 
     public string SharpPath { get; }
 
     public string TimerDataPath { get; }
 
-    public Version Version { get; }
-
-    public IConfiguration CoreConfig { get; }
-
-    public bool HotReload { get; }
-
     public CancellationToken CancellationToken { get; }
-
-    public bool Debug { get; }
 
     public IModSharp             ModSharp { get; }
     public ILibraryModuleManager Modules  { get; }
 
-    public IConVarManager        ConVarManager        { get; }
-    public IEventManager         EventManager         { get; }
-    public IClientManager        ClientManager        { get; }
-    public IEntityManager        EntityManager        { get; }
-    public IFileManager          FileManager          { get; }
-    public IHookManager          HookManager          { get; }
-    public ISchemaManager        SchemaManager        { get; }
-    public ITransmitManager      TransmitManager      { get; }
-    public IPhysicsQueryManager  PhysicsQueryManager  { get; }
-    public ILoggerFactory        LoggerFactory        { get; }
-    public ILibraryModuleManager LibraryModuleManager { get; }
+    public IConVarManager       ConVarManager       { get; }
+    public IEventManager        EventManager        { get; }
+    public IClientManager       ClientManager       { get; }
+    public IEntityManager       EntityManager       { get; }
+    public IHookManager         HookManager         { get; }
+    public ISchemaManager       SchemaManager       { get; }
+    public IPhysicsQueryManager PhysicsQueryManager { get; }
 
-    public IGameRules     GameRules  => ModSharp.GetGameRules();
-    public IGlobalVars    GlobalVars => ModSharp.GetGlobals();
-    public INetworkServer Server     => ModSharp.GetIServer();
+    public IGameRules  GameRules  => ModSharp.GetGameRules();
+    public IGlobalVars GlobalVars => ModSharp.GetGlobals();
 
-    public T GetService<T>()
-        => _entrypoint.GetService<T>();
+    // Cached map name; safe to read off-thread (immutable string). Refresh on the main thread.
+    public string CurrentMapName { get; private set; } = string.Empty;
+
+    public string RefreshMapName()
+        => CurrentMapName = ModSharp.GetGlobals().MapName;
 }

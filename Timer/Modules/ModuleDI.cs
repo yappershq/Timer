@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Source2Surf/Timer
  * Copyright (C) 2025 Nukoooo and Kxnrl
  *
@@ -14,8 +14,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
- 
+
 using Microsoft.Extensions.DependencyInjection;
+using Source2Surf.Timer.Modules.Practice;
 using Source2Surf.Timer.Shared.Interfaces.Modules;
 
 namespace Source2Surf.Timer.Modules;
@@ -30,6 +31,8 @@ internal static class ModuleDI
 
         services.ImplSingleton<ITimerModule, IModule, TimerModule>();
         services.ImplSingleton<IStyleModule, IModule, StyleModule>();
+
+        services.ImplSingleton<IPracticeModule, IModule, PracticeManager>();
         services.ImplSingleton<IRecordModule, IModule, RecordModule>();
         services.ImplSingleton<IReplayPlaybackModule, IModule, ReplayPlaybackModule>();
         services.AddSingleton<IReplayModule>(x => x.GetRequiredService<ReplayPlaybackModule>());

@@ -138,25 +138,6 @@ internal sealed partial class StorageServiceImpl
     {
         var now = DateTime.UtcNow;
 
-        var updated = await _db.Updateable<PlayerBestRunEntity>()
-                               .SetColumns(x => x.RunId     == run.Id)
-                               .SetColumns(x => x.BestTime  == run.Time)
-                               .SetColumns(x => x.UpdatedAt == now)
-                               .Where(x => x.SteamId    == run.SteamId
-                                           && x.MapId   == run.MapId
-                                           && x.RunType == run.RunType
-                                           && x.Style   == run.Style
-                                           && x.Track   == run.Track
-                                           && x.Stage   == run.Stage
-                                           && (x.BestTime > run.Time
-                                               || (x.BestTime == run.Time && x.RunId > run.Id)))
-                               .ExecuteCommandAsync();
-
-        if (updated > 0)
-        {
-            return;
-        }
-
         var entity = new PlayerBestRunEntity
         {
             SteamId   = run.SteamId,
@@ -170,26 +151,65 @@ internal sealed partial class StorageServiceImpl
             UpdatedAt = now,
         };
 
-        try
+        // Engine-agnostic upsert via SqlSugar Storageable (same pattern as UpsertSeedBestRowsAsync, so no
+        // per-dialect SQL). ToStorage() probes existence by the unique key and routes to insert-vs-update.
+        //
+        // The probe + insert are two non-atomic statements, so a concurrent writer (the cross-player seed
+        // path, or a delete) can race between them. We therefore still guard the INSERT and, on a unique
+        // violation (row appeared after the probe), fall through to the conditional UPDATE — this self-heals
+        // the race the way the old UPDATE->INSERT->catch path did. The key difference from the old code is
+        // that the COMMON non-improving finish now takes the UPDATE branch directly via the probe and never
+        // throws; the exception is hit only on a genuine concurrent insert, not on every returning player.
+        var storage = _db.Storageable(entity)
+                         .WhereColumns(x => new
+                         {
+                             x.SteamId,
+                             x.MapId,
+                             x.RunType,
+                             x.Style,
+                             x.Track,
+                             x.Stage,
+                         })
+                         .ToStorage();
+
+        if (storage.InsertList.Count > 0)
         {
-            await _db.Insertable(entity).ExecuteCommandAsync();
+            try
+            {
+                await storage.AsInsertable.ExecuteCommandAsync();
+
+                return;
+            }
+            catch
+            {
+                // Row was inserted by a concurrent writer between the probe and this insert (the seed race).
+                // Fall through to the conditional UPDATE so a better time still wins. On PostgreSQL the
+                // surrounding transaction would be aborted by the violation, so rethrow there and let the
+                // caller roll back+retry rather than run a doomed UPDATE on a poisoned transaction.
+                if (_db.CurrentConnectionConfig.DbType == DbType.PostgreSQL)
+                {
+                    throw;
+                }
+            }
         }
-        catch
-        {
-            await _db.Updateable<PlayerBestRunEntity>()
-                     .SetColumns(x => x.RunId     == run.Id)
-                     .SetColumns(x => x.BestTime  == run.Time)
-                     .SetColumns(x => x.UpdatedAt == now)
-                     .Where(x => x.SteamId    == run.SteamId
-                                 && x.MapId   == run.MapId
-                                 && x.RunType == run.RunType
-                                 && x.Style   == run.Style
-                                 && x.Track   == run.Track
-                                 && x.Stage   == run.Stage
-                                 && (x.BestTime > run.Time
-                                     || (x.BestTime == run.Time && x.RunId > run.Id)))
-                     .ExecuteCommandAsync();
-        }
+
+        // Row exists (or just appeared): overwrite ONLY when the new run is strictly better under
+        // (Time ASC, RunId ASC). The conditional WHERE preserves "faster time wins, lower RunId breaks
+        // ties"; a slower or equal finish updates 0 rows and leaves the stored best untouched. A concurrent
+        // delete between probe and update simply matches 0 rows here — the next finish re-seeds the row.
+        await _db.Updateable<PlayerBestRunEntity>()
+                 .SetColumns(x => x.RunId     == run.Id)
+                 .SetColumns(x => x.BestTime  == run.Time)
+                 .SetColumns(x => x.UpdatedAt == now)
+                 .Where(x => x.SteamId    == run.SteamId
+                             && x.MapId   == run.MapId
+                             && x.RunType == run.RunType
+                             && x.Style   == run.Style
+                             && x.Track   == run.Track
+                             && x.Stage   == run.Stage
+                             && (x.BestTime > run.Time
+                                 || (x.BestTime == run.Time && x.RunId > run.Id)))
+                 .ExecuteCommandAsync();
     }
 
     private async Task UpsertSeedBestRowsAsync(ulong mapId, RunType runType, List<SeedBestRunRow> rows)
@@ -245,19 +265,22 @@ internal sealed partial class StorageServiceImpl
 
     private void RemoveBestRunSeedCacheForMap(ulong mapId)
     {
-        foreach (var key in _bestRunMapSeededCache.Keys)
+        // Iterate the ConcurrentDictionary struct enumerators directly; .Keys would snapshot each entire
+        // keyset into a fresh List + ReadOnlyCollection per call. The enumerator allocates nothing and is
+        // safe to remove from while enumerating.
+        foreach (var kvp in _bestRunMapSeededCache)
         {
-            if (key.mapId == mapId)
+            if (kvp.Key.mapId == mapId)
             {
-                _bestRunMapSeededCache.TryRemove(key, out _);
+                _bestRunMapSeededCache.TryRemove(kvp.Key, out _);
             }
         }
 
-        foreach (var key in _bestRunSeededCache.Keys)
+        foreach (var kvp in _bestRunSeededCache)
         {
-            if (key.mapId == mapId)
+            if (kvp.Key.mapId == mapId)
             {
-                _bestRunSeededCache.TryRemove(key, out _);
+                _bestRunSeededCache.TryRemove(kvp.Key, out _);
             }
         }
     }

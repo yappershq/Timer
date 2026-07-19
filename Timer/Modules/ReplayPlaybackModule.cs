@@ -26,6 +26,7 @@ using Sharp.Shared;
 using Sharp.Shared.Enums;
 using Sharp.Shared.Listeners;
 using Sharp.Shared.Objects;
+using Sharp.Shared.Types;
 using Sharp.Shared.Units;
 using Source2Surf.Timer.Extensions;
 using Source2Surf.Timer.Managers;
@@ -60,15 +61,17 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
     // Replay cache: stage == 0 means main; stage >= 1 means stage replay
     private readonly Dictionary<(int style, int track, int stage), ReplayContent> _replayCache = [];
 
+    // Spatial index over each cached replay's frame positions, kept in lock-step with _replayCache.
+    // Used by time-difference HUDs to find the WR frame closest to a player's current position
+    // in O(log n) instead of O(n). See ClosestFrameIndex for the algorithm details.
+    private readonly Dictionary<(int style, int track, int stage), ClosestFrameIndex> _closestFrameIndices = [];
+
     // Bot management
     private readonly bool                _hasNoBotParam;
     private readonly List<ReplayBotData> _replayBots = [];
     private readonly ReplayBotData?[]    _replayBotBySlot;
     private readonly ReplayBotConfig[]   _replayBotConfigs;
     private readonly bool[]              _configSlotInUse;
-
-    // Listener hub
-    private readonly ListenerHub<IReplayModuleListener> _replayListenerHub;
 
     // Paths
     private readonly string _replayDirectory;
@@ -111,8 +114,6 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
         _logger              = logger;
 
         _hasNoBotParam = bridge.ModSharp.HasCommandLine("-nobots");
-
-        _replayListenerHub = new ListenerHub<IReplayModuleListener>(logger);
 
         _replayBotBySlot = new ReplayBotData?[PlayerSlot.MaxPlayerCount];
 
@@ -214,6 +215,10 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
         if (_hasNoBotParam)
             return;
 
+        // Snapshot on the main thread: CollectWRKeys reads the main-thread-owned MapRecordCache.
+        var mapName = _bridge.CurrentMapName;
+        var wrKeys  = CollectWRKeys();
+
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(_bridge.CancellationToken, _mapRecordLoadToken.Token);
 
         Task.Run(async () =>
@@ -223,8 +228,6 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
                 linkedToken.Token.ThrowIfCancellationRequested();
 
                 var stopwatch = new Stopwatch();
-
-                var wrKeys = CollectWRKeys();
 
                 var mainKeyCount  = 0;
                 var stageKeyCount = 0;
@@ -241,16 +244,28 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
                 var results = new Dictionary<(int style, int track, int stage), ReplayContent>();
 
                 stopwatch.Start();
-                LoadReplaysFromDisk(wrKeys, results, linkedToken.Token);
+                LoadReplaysFromDisk(mapName, wrKeys, results, linkedToken.Token);
                 stopwatch.Stop();
                 _logger.LogInformation("LoadReplay (disk): {elapsed}", stopwatch.Elapsed);
 
                 stopwatch.Restart();
-                await LoadMissingReplaysFromRemote(wrKeys, results, linkedToken.Token);
+                await LoadMissingReplaysFromRemote(mapName, wrKeys, results, linkedToken.Token);
                 stopwatch.Stop();
                 _logger.LogInformation("LoadReplay (remote): {elapsed}", stopwatch.Elapsed);
 
                 linkedToken.Token.ThrowIfCancellationRequested();
+
+                // Build spatial indices off the main thread — k-d tree construction is CPU-bound
+                // and can take several ms per replay; doing this in InvokeFrameAction would stall the tick.
+                stopwatch.Restart();
+                var preBuiltIndices = new Dictionary<(int style, int track, int stage), ClosestFrameIndex>(results.Count);
+                foreach (var (key, content) in results)
+                {
+                    linkedToken.Token.ThrowIfCancellationRequested();
+                    preBuiltIndices[key] = new ClosestFrameIndex(content.Frames);
+                }
+                stopwatch.Stop();
+                _logger.LogInformation("BuildClosestIndex: {elapsed}", stopwatch.Elapsed);
 
                 // Flush results to main-thread cache, preserving any fresher in-memory replays
                 // (a player can finish a run while load is in-flight; that newer replay must win).
@@ -269,7 +284,8 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
                                                                           continue;
                                                                       }
 
-                                                                      _replayCache[key]    = content;
+                                                                      _replayCache[key]         = content;
+                                                                      _closestFrameIndices[key] = preBuiltIndices[key];
                                                                       UpdateReplayBots(key.style, key.track, key.stage);
                                                                   }
                                                               },
@@ -310,6 +326,7 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
 
         _replayBots.Clear();
         _replayCache.Clear();
+        _closestFrameIndices.Clear();
         Array.Clear(_replayBotBySlot, 0, _replayBotBySlot.Length);
         Array.Clear(_configSlotInUse, 0, _configSlotInUse.Length);
     }
@@ -423,30 +440,50 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
             return false;
         }
 
-        _replayCache[(style, track, stage)] = content;
+        var key = (style, track, stage);
+
+        // Make the new WR live immediately for bots and HUD lookups.
+        _replayCache[key] = content;
         UpdateReplayBots(style, track, stage);
+
+        // k-d tree construction is CPU-bound — several ms for a multi-hour replay (~230k frames).
+        // This method runs inside an InvokeFrameAction (see ReplayRecorderModule), so building inline
+        // would stall the tick the instant a record is beaten. Build off the main thread and swap the
+        // index in via a frame action. Drop the stale index now so that, during the brief rebuild
+        // window, FindClosestFrameIndex returns -1 (HUD live-diff hidden) instead of querying an index
+        // that points at the previous replay's frames.
+        _closestFrameIndices.Remove(key);
+        BuildClosestFrameIndexAsync(key, content);
+
         return true;
     }
 
-    public bool ShouldUploadReplay(ulong steamId, int style, int track, int stage, float time, bool isNewBest)
+    // Builds the spatial index off the main thread and attaches it via a frame action. The reference
+    // check guarantees we only attach when the cache still holds the exact replay we built from — a
+    // newer WR (or a map change) that replaced the cache entry will have started its own build, so a
+    // late-finishing stale build is discarded rather than clobbering the current index.
+    private void BuildClosestFrameIndexAsync((int style, int track, int stage) key, ReplayContent content)
     {
-        var listeners = _replayListenerHub.Snapshot;
-        if (listeners.Length == 0) return isNewBest;
-
-        foreach (var listener in listeners)
+        _ = Task.Run(async () =>
         {
             try
             {
-                if (listener.ShouldUploadReplay(steamId, style, track, stage, time, isNewBest))
-                    return true;
+                var index = new ClosestFrameIndex(content.Frames);
+
+                await _bridge.ModSharp.InvokeFrameActionAsync(() =>
+                {
+                    if (_replayCache.TryGetValue(key, out var current) && ReferenceEquals(current, content))
+                    {
+                        _closestFrameIndices[key] = index;
+                    }
+                });
             }
             catch (Exception e)
             {
-                _logger.LogError(e, "Error in ShouldUploadReplay listener: {type}", listener.GetType().Name);
+                _logger.LogError(e, "Failed to build closest-frame index for {Style}/{Track}/{Stage}",
+                                 key.style, key.track, key.stage);
             }
-        }
-
-        return false;
+        });
     }
 
     public IReplayBotData? GetReplayBotData(PlayerSlot slot)
@@ -457,14 +494,19 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
     public IReplayBotData? GetReplayBotByIndex(int index) =>
         (uint) index < (uint) _replayBots.Count ? _replayBots[index] : null;
 
-    public int GetReplayBotCount() =>
-        _replayBots.Count;
+    public ReplayContent? GetCachedReplay(int style, int track, int stage)
+        => _replayCache.TryGetValue((style, track, stage), out var content) ? content : null;
 
-    public void RegisterListener(IReplayModuleListener listener)
-        => _replayListenerHub.Register(listener);
+    public int FindClosestFrameIndex(int style, int track, int stage, in Vector position, out float distanceSquared)
+    {
+        if (_closestFrameIndices.TryGetValue((style, track, stage), out var index))
+        {
+            return index.FindClosest(position, out distanceSquared);
+        }
 
-    public void UnregisterListener(IReplayModuleListener listener)
-        => _replayListenerHub.Unregister(listener);
+        distanceSquared = float.PositiveInfinity;
+        return -1;
+    }
 
     private void Timer_CheckReplayBot()
     {
@@ -566,13 +608,15 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
             bot.Status = EReplayBotStatus.Start;
             bot.Time   = header.Time;
 
-            bot.Timer = _bridge.ModSharp.PushTimer(() =>
-                                                   {
-                                                       bot.Timer  = null;
-                                                       bot.Status = EReplayBotStatus.Running;
+            bot.StartDelayCallback ??= () =>
+                                       {
+                                           bot.Timer  = null;
+                                           bot.Status = EReplayBotStatus.Running;
 
-                                                       return TimerAction.Stop;
-                                                   },
+                                           return TimerAction.Stop;
+                                       };
+
+            bot.Timer = _bridge.ModSharp.PushTimer(bot.StartDelayCallback,
                                                    timer_replay_delay.GetFloat(),
                                                    GameTimerFlags.StopOnMapEnd);
         }
@@ -758,30 +802,32 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
         {
             bot.Status = EReplayBotStatus.End;
 
-            bot.Timer = _bridge.ModSharp.PushTimer(() =>
-                                                   {
-                                                       bot.Timer = null;
+            bot.LoopAdvanceCallback ??= () =>
+                                        {
+                                            bot.Timer = null;
 
-                                                       if (bot.Type == EReplayBotType.Looping)
-                                                       {
-                                                           if (bot.Config.StageBot)
-                                                           {
-                                                               FindNextStageReplay(bot);
-                                                           }
-                                                           else
-                                                           {
-                                                               FindNextReplay(bot);
-                                                           }
+                                            if (bot.Type == EReplayBotType.Looping)
+                                            {
+                                                if (bot.Config.StageBot)
+                                                {
+                                                    FindNextStageReplay(bot);
+                                                }
+                                                else
+                                                {
+                                                    FindNextReplay(bot);
+                                                }
 
-                                                           StartReplay(bot);
-                                                       }
-                                                       else
-                                                       {
-                                                           bot.Controller.Respawn();
-                                                       }
+                                                StartReplay(bot);
+                                            }
+                                            else
+                                            {
+                                                bot.Controller.Respawn();
+                                            }
 
-                                                       return TimerAction.Stop;
-                                                   },
+                                            return TimerAction.Stop;
+                                        };
+
+            bot.Timer = _bridge.ModSharp.PushTimer(bot.LoopAdvanceCallback,
                                                    timer_replay_delay.GetFloat() / 2.0f,
                                                    GameTimerFlags.StopOnMapEnd);
         }
@@ -925,12 +971,11 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
         return keys;
     }
 
-    private void LoadReplaysFromDisk(List<(int style, int track, int stage, RunRecord wr)> wrKeys,
+    private void LoadReplaysFromDisk(string mapName,
+                                     List<(int style, int track, int stage, RunRecord wr)> wrKeys,
                                      Dictionary<(int style, int track, int stage), ReplayContent> results,
                                      CancellationToken token)
     {
-        var mapName = _bridge.GlobalVars.MapName;
-
         Parallel.ForEach(wrKeys,
             new ParallelOptions { CancellationToken = token, MaxDegreeOfParallelism = Environment.ProcessorCount },
             () => new Decompressor(),
@@ -938,9 +983,7 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
             {
                 var (style, track, stage, wr) = key;
 
-                var filePath = stage == 0
-                    ? ReplayShared.BuildMainReplayPath(_replayDirectory, mapName, style, track, wr.Id)
-                    : ReplayShared.BuildStageReplayPath(_replayDirectory, mapName, style, track, stage, wr.Id);
+                var filePath = ReplayShared.BuildReplayPath(_replayDirectory, mapName, style, track, stage, wr.Id);
 
                 if (File.Exists(filePath)
                     && ReplayShared.LoadReplayFromPath(filePath, style, track, stage, decompressor, _logger) is { } result)
@@ -957,13 +1000,13 @@ internal class ReplayPlaybackModule : IReplayPlaybackModule,
     }
 
     private async Task LoadMissingReplaysFromRemote(
+        string mapName,
         List<(int style, int track, int stage, RunRecord wr)> wrKeys,
         Dictionary<(int style, int track, int stage), ReplayContent> results,
         CancellationToken token)
     {
         if (!_replayProviderProxy.IsAvailable) return;
 
-        var mapName = _bridge.GlobalVars.MapName;
         var maxConcurrency = Math.Max(1, Math.Min(Environment.ProcessorCount, 8));
         var semaphore = new SemaphoreSlim(maxConcurrency);
 

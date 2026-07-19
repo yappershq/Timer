@@ -73,10 +73,20 @@ internal sealed partial class StorageServiceImpl
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Map insert raced for map {map}, retrying read.", mapName);
-            }
+                // Usually a duplicate-key race with another server inserting the same map —
+                // the re-read below picks up the winning row. If the re-read finds nothing,
+                // the insert genuinely failed: surface it instead of returning (and caching)
+                // an unsaved entity with MapId 0.
+                if (await FindMapByNameAsync(mapKey) is not { } raced)
+                {
+                    _logger.LogError(ex, "Failed to insert map row for {map}", mapName);
 
-            mapEntity = await FindMapByNameAsync(mapKey) ?? mapEntity;
+                    throw;
+                }
+
+                _logger.LogDebug(ex, "Map insert raced for map {map}; using the winning row.", mapName);
+                mapEntity = raced;
+            }
         }
 
         _mapIdCache[mapKey] = mapEntity.MapId;
@@ -213,11 +223,14 @@ internal sealed partial class StorageServiceImpl
 
     private void InvalidateTrackScoreConfigCache(ulong mapId)
     {
-        foreach (var key in _trackScoreConfigCache.Keys)
+        // Iterate the ConcurrentDictionary's allocation-free struct enumerator directly. Accessing .Keys
+        // would snapshot the entire keyset into a fresh List + ReadOnlyCollection on every call; the
+        // enumerator allocates nothing and is safe to remove from during enumeration.
+        foreach (var kvp in _trackScoreConfigCache)
         {
-            if (key.mapId == mapId)
+            if (kvp.Key.mapId == mapId)
             {
-                _trackScoreConfigCache.TryRemove(key, out _);
+                _trackScoreConfigCache.TryRemove(kvp.Key, out _);
             }
         }
     }

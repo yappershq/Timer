@@ -17,5 +17,9 @@
 	<ItemGroup>
 	  <ProjectReference Include="..\Timer.Shared\Timer.Shared.csproj" Private="false" ExcludeAssets="runtime" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="Timer.RequestManager.Tests" />
+	</ItemGroup>
 </Project>
 

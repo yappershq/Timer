@@ -23,6 +23,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using MemoryPack;
 using Microsoft.Extensions.Logging;
+using Sharp.Shared.Types;
 using Source2Surf.Timer.Shared;
 using Source2Surf.Timer.Shared.Models.Replay;
 using ZstdSharp;
@@ -35,7 +36,16 @@ internal static class ReplayShared
     public const char HeaderFrameSeparator = '\n';
     public static readonly byte[] HeaderFrameSeparatorBytes = [(byte)HeaderFrameSeparator];
 
-    public static string BuildMainReplayPath(string replayDirectory, string mapName, int style, int track, long? runId)
+    /// <summary>
+    ///     Builds the on-disk replay path — main track (stage == 0) or stage replay. A null
+    ///     <paramref name="runId" /> produces a Guid-suffixed temp name.
+    /// </summary>
+    public static string BuildReplayPath(string replayDirectory, string mapName, int style, int track, int stage, long? runId)
+        => stage == 0
+            ? BuildMainReplayPath(replayDirectory, mapName, style, track, runId)
+            : BuildStageReplayPath(replayDirectory, mapName, style, track, stage, runId);
+
+    private static string BuildMainReplayPath(string replayDirectory, string mapName, int style, int track, long? runId)
     {
         var fileName = runId is null
             ? $"{mapName}_{track}.replay.{Guid.NewGuid()}"
@@ -46,7 +56,7 @@ internal static class ReplayShared
                             fileName);
     }
 
-    public static string BuildStageReplayPath(string replayDirectory, string mapName, int style, int track, int stage, long? runId)
+    private static string BuildStageReplayPath(string replayDirectory, string mapName, int style, int track, int stage, long? runId)
     {
         var fileName = runId is null
             ? $"{mapName}_{track}_{stage}.replay.{Guid.NewGuid()}"
@@ -59,88 +69,21 @@ internal static class ReplayShared
     }
 
     /// <summary>
-    /// Parse a main replay filename: {mapname}_{track}.replay -> track
-    /// </summary>
-    /// <param name="path">File path</param>
-    /// <param name="mapName">Current map name</param>
-    /// <param name="track">Parsed track number</param>
-    /// <returns>True if parsing succeeded, false otherwise</returns>
-    public static bool TryParseTrackFromFileName(string path, string mapName, out int track)
-    {
-        track = 0;
-        var name = Path.GetFileNameWithoutExtension(path);
-        var prefix = mapName + "_";
-        if (!name.StartsWith(prefix)) return false;
-
-        return int.TryParse(name.AsSpan()[prefix.Length..], out track)
-               && track is >= 0 and < TimerConstants.MAX_TRACK;
-    }
-
-    /// <summary>
-    /// Parse a stage replay filename: {mapname}_{track}_{stage}.replay -> (track, stage)
-    /// </summary>
-    /// <param name="path">File path</param>
-    /// <param name="mapName">Current map name</param>
-    /// <param name="track">Parsed track number</param>
-    /// <param name="stage">Parsed stage number</param>
-    /// <returns>True if parsing succeeded, false otherwise</returns>
-    public static bool TryParseTrackStageFromFileName(string path, string mapName, out int track, out int stage)
-    {
-        track = stage = 0;
-        var name = Path.GetFileNameWithoutExtension(path);
-        var prefix = mapName + "_";
-        if (!name.StartsWith(prefix)) return false;
-
-        var suffix = name.AsSpan()[prefix.Length..];
-        var idx = suffix.IndexOf('_');
-        if (idx == -1) return false;
-
-        return int.TryParse(suffix[..idx], out track)
-               && track is >= 0 and < TimerConstants.MAX_TRACK
-               && int.TryParse(suffix[(idx + 1)..], out stage)
-               && stage is >= 1 and < TimerConstants.MAX_STAGE;
-    }
-
-    /// <summary>
-    /// Serialize replay data in-memory (JSON header + \n separator + Zstd-compressed MemoryPack frame data) for remote upload.
+    /// Serialize replay data in-memory (JSON header + \n separator + Zstd-compressed MemoryPack frame data)
+    /// for remote upload. Spatial fields are quantized for storage (see <see cref="QuantizeForStorage"/>).
     /// </summary>
     public static byte[] SerializeReplay(ReplayFileHeader header, IReadOnlyList<ReplayFrameData> frames)
     {
-        // Serialize frames via MemoryPack
-        byte[] serializedFrames;
-
-        switch (frames)
-        {
-            case ReplayFrameData[] arr:
-                serializedFrames = MemoryPackSerializer.Serialize(arr);
-                break;
-            case List<ReplayFrameData> list:
-                serializedFrames = MemoryPackSerializer.Serialize(list);
-                break;
-            default:
-                var rented = ArrayPool<ReplayFrameData>.Shared.Rent(frames.Count);
-                try
-                {
-                    for (var i = 0; i < frames.Count; i++)
-                        rented[i] = frames[i];
-
-                    serializedFrames = MemoryPackSerializer.Serialize(rented.AsMemory(0, frames.Count));
-                }
-                finally
-                {
-                    ArrayPool<ReplayFrameData>.Shared.Return(rented);
-                }
-                break;
-        }
+        var serializedFrames = MemoryPackSerializer.Serialize(QuantizeForStorage(frames));
 
         // Zstd compress
         using var compressor = new Compressor();
-        var compressed = compressor.Wrap(serializedFrames);
+        var       compressed = compressor.Wrap(serializedFrames);
 
         // Assemble: JSON header + \n separator + compressed frames
         using var ms = new MemoryStream(compressed.Length + 4096);
         JsonSerializer.Serialize(ms, header);
-        ms.WriteByte((byte)HeaderFrameSeparator);
+        ms.WriteByte((byte) HeaderFrameSeparator);
         ms.Write(compressed);
 
         return ms.ToArray();
@@ -274,7 +217,8 @@ internal static class ReplayShared
 
     /// <summary>
     /// Create a stage replay snapshot from PlayerFrameData.
-    /// Uses ReplayFrameSlice for zero-copy frame slicing.
+    /// Materializes the [startTick, startTick+length) range into a private array so the
+    /// snapshot never aliases the player's live, still-mutating Frames list.
     /// </summary>
     public static ReplaySaveSnapshot CreateStageReplaySnapshot(PlayerFrameData frame,
                                                                int             startTick,
@@ -286,16 +230,35 @@ internal static class ReplayShared
         var finalFrame = Math.Min(frame.Frames.Count, stageFinishFrame + postRunFrameCount);
         var length     = Math.Max(0, finalFrame                        - startTick);
 
-        IReadOnlyList<ReplayFrameData> framesToWrite = length == 0
-            ? []
-            : new ReplayFrameSlice(frame.Frames, startTick, length);
+        // Copy the frames out NOW, on the (main-thread) caller. Unlike the main path —
+        // which detaches its buffer by swapping in a fresh list (CreateMainReplaySnapshot) —
+        // the stage path can't swap because the run continues, so a zero-copy slice over
+        // frame.Frames would be read by the background serializer while OnPlayerRunCommandPost
+        // keeps appending and TrimPreRunFrames shrinks the same List<T>: a torn-read / shifted-
+        // frame data race. A private array makes the snapshot immutable and self-contained.
+        ReplayFrameData[] framesToWrite;
+
+        if (length == 0)
+        {
+            framesToWrite = [];
+        }
+        else
+        {
+            framesToWrite = new ReplayFrameData[length];
+            frame.Frames.CopyTo(startTick, framesToWrite, 0, length);
+        }
+
+        // Clamp the marker fields to the materialized length so they can never index past the
+        // written frames (e.g. when the post-run pushed stageFinishFrame beyond what was recorded).
+        var preFrame  = Math.Clamp(stageStartFrame  - startTick, 0, length);
+        var postFrame = Math.Clamp(stageFinishFrame - startTick, preFrame, length);
 
         var header = new ReplayFileHeader
         {
             SteamId     = frame.SteamId,
-            TotalFrames = framesToWrite.Count,
-            PreFrame    = stageStartFrame  - startTick,
-            PostFrame   = stageFinishFrame - startTick,
+            TotalFrames = framesToWrite.Length,
+            PreFrame    = preFrame,
+            PostFrame   = postFrame,
             Time        = finishTime,
             PlayerName  = frame.Name,
         };
@@ -399,6 +362,7 @@ internal static class ReplayShared
 
     /// <summary>
     /// Asynchronously write a replay file (JSON header + \n separator + MemoryPack frame data).
+    /// Spatial fields are quantized for storage (see <see cref="QuantizeForStorage"/>).
     /// If compressionLevel &lt;= 0, writes uncompressed frame data.
     /// If compressionWorkers &lt;= 0, uses single-threaded compression.
     /// </summary>
@@ -434,9 +398,13 @@ internal static class ReplayShared
                 ArrayPool<byte>.Shared.Return(headerBuffer);
             }
 
+            // Round position/velocity/angles to the storage grid before serializing: zeroing the low
+            // mantissa bits makes the MemoryPack blob markedly more compressible without a custom layout.
+            var quantizedFrames = QuantizeForStorage(framesToWrite);
+
             if (compressionLevel <= 0)
             {
-                await SerializeFramesToStreamAsync(fileStream, framesToWrite);
+                await SerializeFramesToStreamAsync(fileStream, quantizedFrames);
             }
             else
             {
@@ -445,7 +413,7 @@ internal static class ReplayShared
                 compressionStream.SetParameter(ZSTD_cParameter.ZSTD_c_nbWorkers,
                                                Math.Max(compressionWorkers, 0));
 
-                await SerializeFramesToStreamAsync(compressionStream, framesToWrite);
+                await SerializeFramesToStreamAsync(compressionStream, quantizedFrames);
             }
         }
         catch (Exception e)
@@ -462,6 +430,45 @@ internal static class ReplayShared
 
         return true;
     }
+
+    // Storage quantization grid: 1/32 unit, matching Valve's network coordinate precision
+    // (COORD_FRACTIONAL_BITS = 5). Lossy but sub-perceptual, and bounded per-frame — playback sets an
+    // absolute transform each tick, so the error never accumulates.
+    private const float StorageQuantScale    = 32f;
+    private const float InvStorageQuantScale = 1f / StorageQuantScale;
+
+    /// <summary>
+    /// Return a copy of <paramref name="frames"/> with Origin / Velocity / Angles snapped to the storage
+    /// grid. Uses <c>record struct</c> <c>with</c> so every other field — including any added later — is
+    /// carried through verbatim, keeping the encoding field-agnostic (no per-field codec to maintain).
+    /// </summary>
+    private static ReplayFrameData[] QuantizeForStorage(IReadOnlyList<ReplayFrameData> frames)
+    {
+        var result = new ReplayFrameData[frames.Count];
+
+        for (var i = 0; i < frames.Count; i++)
+        {
+            var f = frames[i];
+
+            result[i] = f with
+            {
+                Origin   = Snap(f.Origin),
+                Velocity = Snap(f.Velocity),
+                Angles   = SnapAngles(f.Angles),
+            };
+        }
+
+        return result;
+    }
+
+    private static float Snap(float value)
+        => MathF.Round(value * StorageQuantScale) * InvStorageQuantScale;
+
+    private static Vector Snap(Vector v)
+        => new (Snap(v.X), Snap(v.Y), Snap(v.Z));
+
+    private static Vector2D SnapAngles(Vector2D a)
+        => new (Snap(a.X), Snap(a.Y));
 
     private static async Task SerializeFramesToStreamAsync(Stream stream, IReadOnlyList<ReplayFrameData> framesToWrite)
     {

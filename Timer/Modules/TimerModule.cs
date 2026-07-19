@@ -51,6 +51,32 @@ internal interface ITimerModule
     bool PauseTimer(PlayerSlot slot);
 
     bool ResumeTimer(PlayerSlot slot);
+
+    /// <summary>
+    ///     Capture the full timer state for the given slot, or null if no timer
+    ///     exists. Used by the practice saveloc system to take a restorable
+    ///     snapshot of the main timer.
+    /// </summary>
+    TimerStateSnapshot? CaptureTimerSnapshot(PlayerSlot slot);
+
+    /// <summary>
+    ///     Capture the full stage timer state. Mirrors
+    ///     <see cref="CaptureTimerSnapshot"/> for the stage track.
+    /// </summary>
+    StageTimerStateSnapshot? CaptureStageTimerSnapshot(PlayerSlot slot);
+
+    /// <summary>
+    ///     Restore a previously captured main timer snapshot. Deliberately does
+    ///     not fire any timer listener callbacks — restoring is not the same as
+    ///     a fresh timer start.
+    /// </summary>
+    void RestoreTimerSnapshot(PlayerSlot slot, TimerStateSnapshot snapshot);
+
+    /// <summary>
+    ///     Restore a previously captured stage timer snapshot. Like
+    ///     <see cref="RestoreTimerSnapshot"/>, no listeners are notified.
+    /// </summary>
+    void RestoreStageTimerSnapshot(PlayerSlot slot, StageTimerStateSnapshot snapshot);
 }
 
 // TODO:
@@ -84,6 +110,14 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
         Mins = new (-16, -16, -16),
         Maxs = new (16, 16, 54),
     };
+
+    // Downward trace distance for the surf-slope check — one ducked hull height
+    // (DuckedHull.Maxs.Z) below the origin.
+    private const float SurfTraceDepth = 54f;
+
+    // Prejump-limit grace window: jumps only count against GetMaxPrejumps while the
+    // player has been grounded for at most this many ticks.
+    private const int PrejumpGraceTicks = 10;
 
     private readonly IZoneModule _zoneModule;
 
@@ -490,6 +524,18 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
     public ITimerInfo? GetStageTimerInfo(PlayerSlot slot)
         => _stageTimerInfo[slot];
 
+    public TimerStateSnapshot? CaptureTimerSnapshot(PlayerSlot slot)
+        => _timerInfo[slot]?.CaptureState();
+
+    public StageTimerStateSnapshot? CaptureStageTimerSnapshot(PlayerSlot slot)
+        => _stageTimerInfo[slot]?.CaptureState() as StageTimerStateSnapshot;
+
+    public void RestoreTimerSnapshot(PlayerSlot slot, TimerStateSnapshot snapshot)
+        => _timerInfo[slot]?.RestoreState(snapshot);
+
+    public void RestoreStageTimerSnapshot(PlayerSlot slot, StageTimerStateSnapshot snapshot)
+        => _stageTimerInfo[slot]?.RestoreState(snapshot);
+
     public void RegisterListener(ITimerModuleListener listener)
         => _listenerHub.Register(listener);
 
@@ -530,106 +576,38 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
             stageTimer.ChangeTrack(track);
         }
 
-        if (!_zoneModule.TeleportToZone(pawn, track, EZoneType.Start))
-        {
-            return;
-        }
+        _zoneModule.TeleportToZone(pawn, track, EZoneType.Start);
     }
 
     private void NotifyPlayerTimerStart(IPlayerController controller, IPlayerPawn pawn, TimerInfo timerInfo)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnPlayerTimerStart(controller, pawn, timerInfo);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnPlayerTimerStart listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnPlayerTimerStart",
+                                  static (l, c, p, t) => l.OnPlayerTimerStart(c, p, t),
+                                  controller, pawn, timerInfo);
 
     private void NotifyPlayerFinishMap(IPlayerController controller, IPlayerPawn pawn, TimerInfo timerInfo)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnPlayerFinishMap(controller, pawn, timerInfo);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnPlayerFinishMap listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnPlayerFinishMap",
+                                  static (l, c, p, t) => l.OnPlayerFinishMap(c, p, t),
+                                  controller, pawn, timerInfo);
 
     private void NotifyPlayerStageTimerStart(IPlayerController controller, IPlayerPawn pawn, StageTimerInfo stageTimerInfo)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnPlayerStageTimerStart(controller, pawn, stageTimerInfo);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnPlayerStageTimerStart listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnPlayerStageTimerStart",
+                                  static (l, c, p, t) => l.OnPlayerStageTimerStart(c, p, t),
+                                  controller, pawn, stageTimerInfo);
 
     private void NotifyPlayerStageTimerFinish(IPlayerController controller, IPlayerPawn pawn, StageTimerInfo stageTimerInfo)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnPlayerStageTimerFinish(controller, pawn, stageTimerInfo);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnPlayerStageTimerFinish listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnPlayerStageTimerFinish",
+                                  static (l, c, p, t) => l.OnPlayerStageTimerFinish(c, p, t),
+                                  controller, pawn, stageTimerInfo);
 
     private void NotifyReachCheckpoint(IPlayerController controller, IPlayerPawn pawn, TimerInfo timerInfo, int checkpoint)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnReachCheckpoint(controller, pawn, timerInfo, checkpoint);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnReachCheckpoint listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnReachCheckpoint",
+                                  static (l, c, p, t, cp) => l.OnReachCheckpoint(c, p, t, cp),
+                                  controller, pawn, timerInfo, checkpoint);
 
     private bool CanAllListenersStartTimer(IPlayerController controller, IPlayerPawn pawn)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                if (!listener.CanStartTimer(controller, pawn))
-                {
-                    return false;
-                }
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling CanStartTimer listener");
-            }
-        }
-
-        return true;
-    }
+        => _listenerHub.All("CanStartTimer",
+                            static (l, c, p) => l.CanStartTimer(c, p),
+                            controller, pawn);
 
     public void StopTimer(PlayerSlot slot)
     {

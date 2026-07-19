@@ -18,6 +18,7 @@
 using Sharp.Shared.Enums;
 using Sharp.Shared.Types;
 using Sharp.Shared.Units;
+using Source2Surf.Timer.Shared;
 using Source2Surf.Timer.Shared.Models.Zone;
 
 namespace Source2Surf.Timer.Modules;
@@ -53,7 +54,9 @@ internal partial class TimerModule
                                                  return ECommandAction.Handled;
                                              });
 
-        for (var i = 1; i < 24; i++)
+        // One command per reachable bonus track (b1..b31) — zones can target any
+        // track index below MAX_TRACK.
+        for (var i = 1; i < TimerConstants.MAX_TRACK; i++)
         {
             var i1 = i;
 

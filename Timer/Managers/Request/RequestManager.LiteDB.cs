@@ -38,15 +38,19 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
     private readonly ILogger<RequestManagerLiteDB> _logger;
     private readonly ConcurrentDictionary<string, ulong> _mapIdCache = new (StringComparer.Ordinal);
 
+    // Serializes find-or-create to avoid inserting duplicate MapProfile rows.
+    private readonly object _mapCreateLock = new ();
+
     private LiteDatabase Database => _database ?? throw new ObjectDisposedException(nameof(RequestManagerLiteDB));
 
     private const string PlayerRecordTableName           = "player_records";
     private const string PlayerStageRecordTableName      = "player_stage_records";
     private const string PlayerCheckpointRecordTableName = "player_checkpoint_records";
 
-    private const string MapTableName  = "maps";
-    private const string UserTableName = "users";
-    private const string ZoneTableName = "zones";
+    private const string MapTableName            = "maps";
+    private const string UserTableName           = "users";
+    private const string ZoneTableName           = "zones";
+    private const string PlayerMapStatsTableName = "player_map_stats";
 
     static RequestManagerLiteDB()
     {
@@ -111,6 +115,45 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
 
         var zoneCol = Database.GetCollection<ZoneDocument>(ZoneTableName);
         zoneCol.EnsureIndex(x => x.MapName);
+
+        var mapStatsCol = Database.GetCollection<PlayerMapStatsDoc>(PlayerMapStatsTableName);
+        mapStatsCol.EnsureIndex(x => x.SteamId);
+    }
+
+    /// <summary>
+    ///     Fills <see cref="RunRecord.PlayerName" /> from the users collection — stored run
+    ///     documents only carry SteamId, but leaderboard output (!wr/!top) renders the name.
+    /// </summary>
+    private void PopulatePlayerNames(List<RunRecord> records)
+    {
+        if (records.Count == 0)
+        {
+            return;
+        }
+
+        var col   = Database.GetCollection<PlayerProfile>(UserTableName);
+        var names = new Dictionary<ulong, string>();
+
+        foreach (var record in records)
+        {
+            if (!names.TryGetValue(record.SteamId, out var name))
+            {
+                var steamId = new SteamID(record.SteamId);
+
+                name = col.Query()
+                          .Where(i => i.SteamId == steamId)
+                          .FirstOrDefault()
+                          ?.Name
+                       ?? string.Empty;
+
+                names[record.SteamId] = name;
+            }
+
+            if (name.Length > 0)
+            {
+                record.PlayerName = name;
+            }
+        }
     }
 
     public Task<MapProfile> GetMapInfo(string map)
@@ -119,33 +162,36 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
 
         var col = Database.GetCollection<MapProfile>(MapTableName);
 
-        if (col.FindOne(i => i.MapName == mapNameKey) is { } rec)
+        lock (_mapCreateLock)
         {
-            _mapIdCache[mapNameKey] = rec.MapId;
+            if (col.FindOne(i => i.MapName == mapNameKey) is { } rec)
+            {
+                _mapIdCache[mapNameKey] = rec.MapId;
 
-            return Task.FromResult(rec);
+                return Task.FromResult(rec);
+            }
+
+            var newMap = new MapProfile
+            {
+                Bonuses = 0,
+                Stages  = 0,
+
+                MapName = mapNameKey,
+
+                PlayCount     = 0,
+                TotalPlayTime = 0.0f,
+
+                Tier = new byte[MapProfile.DefaultTrackCount],
+            };
+
+            newMap.Tier[0] = 1;
+
+            var newId = col.Insert(newMap);
+            newMap.MapId = (ulong) newId.AsInt64;
+            _mapIdCache[mapNameKey] = newMap.MapId;
+
+            return Task.FromResult(newMap);
         }
-
-        var newMap = new MapProfile
-        {
-            Bonuses = 0,
-            Stages  = 0,
-
-            MapName = mapNameKey,
-
-            PlayCount     = 0,
-            TotalPlayTime = 0.0f,
-
-            Tier = new byte[MapProfile.DefaultTrackCount],
-        };
-
-        newMap.Tier[0] = 1;
-
-        var newId = col.Insert(newMap);
-        newMap.MapId = (ulong) newId.AsInt64;
-        _mapIdCache[mapNameKey] = newMap.MapId;
-
-        return Task.FromResult(newMap);
     }
 
     public Task UpdateMapInfo(MapProfile info)
@@ -154,32 +200,35 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
 
         var col = Database.GetCollection<MapProfile>(MapTableName);
 
-        if (col.FindOne(i => i.MapName == mapNameKey) is { } existingInfo)
+        lock (_mapCreateLock)
         {
-            existingInfo.Tier    = info.Tier;
-            existingInfo.Bonuses = info.Bonuses;
-            existingInfo.Stages  = info.Stages;
-
-            existingInfo.PlayCount     = info.PlayCount;
-            existingInfo.TotalPlayTime = info.TotalPlayTime;
-            col.Update(existingInfo);
-            _mapIdCache[mapNameKey] = existingInfo.MapId;
-        }
-        else
-        {
-            var newInfo = new MapProfile
+            if (col.FindOne(i => i.MapName == mapNameKey) is { } existingInfo)
             {
-                MapId         = info.MapId,
-                MapName       = mapNameKey,
-                Stages        = info.Stages,
-                Bonuses       = info.Bonuses,
-                Tier          = info.Tier,
-                TotalPlayTime = info.TotalPlayTime,
-                PlayCount     = info.PlayCount,
-            };
+                existingInfo.Tier    = info.Tier;
+                existingInfo.Bonuses = info.Bonuses;
+                existingInfo.Stages  = info.Stages;
 
-            col.Insert(newInfo);
-            _mapIdCache[mapNameKey] = newInfo.MapId;
+                existingInfo.PlayCount     = info.PlayCount;
+                existingInfo.TotalPlayTime = info.TotalPlayTime;
+                col.Update(existingInfo);
+                _mapIdCache[mapNameKey] = existingInfo.MapId;
+            }
+            else
+            {
+                var newInfo = new MapProfile
+                {
+                    MapId         = info.MapId,
+                    MapName       = mapNameKey,
+                    Stages        = info.Stages,
+                    Bonuses       = info.Bonuses,
+                    Tier          = info.Tier,
+                    TotalPlayTime = info.TotalPlayTime,
+                    PlayCount     = info.PlayCount,
+                };
+
+                col.Insert(newInfo);
+                _mapIdCache[mapNameKey] = newInfo.MapId;
+            }
         }
 
         return Task.CompletedTask;
@@ -214,6 +263,8 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
                           .ThenBy(run => run.Id)
                           .Take(normalizedLimit)
                           .ToList();
+
+        PopulatePlayerNames(bestRuns);
 
         return Task.FromResult<IReadOnlyList<RunRecord>>(bestRuns);
     }
@@ -250,6 +301,8 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
                           .Take(normalizedLimit)
                           .ToList();
 
+        PopulatePlayerNames(bestRuns);
+
         return Task.FromResult<IReadOnlyList<RunRecord>>(bestRuns);
     }
 
@@ -280,6 +333,8 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
                           .ThenBy(run => run.Id)
                           .Take(normalizedLimit)
                           .ToList();
+
+        PopulatePlayerNames(bestRuns);
 
         return Task.FromResult<IReadOnlyList<RunRecord>>(bestRuns);
     }
@@ -315,6 +370,8 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
                           .ThenBy(run => run.Id)
                           .Take(normalizedLimit)
                           .ToList();
+
+        PopulatePlayerNames(bestRuns);
 
         return Task.FromResult<IReadOnlyList<RunRecord>>(bestRuns);
     }
@@ -362,12 +419,15 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
 
             if (recordRequest.Checkpoints?.Count > 0)
             {
-                var checkpoints = recordRequest.Checkpoints.Select((cp, i) =>
+                // Persist the request's own index (matches the SQL backend) instead of
+                // renumbering — identical for the sequential 1-based indexes RecordSaver
+                // produces, but the two backends must not diverge on gapped input.
+                var checkpoints = recordRequest.Checkpoints.Select(cp =>
                 {
                     var cpInfo = new RunCheckpoint
                     {
                         RecordId        = newRecord.Id,
-                        CheckpointIndex = (uint) (i + 1),
+                        CheckpointIndex = (uint) cp.CheckpointIndex,
                         Time            = cp.Time,
                         Sync            = cp.Sync,
                     };
@@ -541,12 +601,15 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
 
             if (recordRequest.Checkpoints?.Count > 0)
             {
-                var checkpoints = recordRequest.Checkpoints.Select((cp, i) =>
+                // Persist the request's own index (matches the SQL backend) instead of
+                // renumbering — identical for the sequential 1-based indexes RecordSaver
+                // produces, but the two backends must not diverge on gapped input.
+                var checkpoints = recordRequest.Checkpoints.Select(cp =>
                 {
                     var cpInfo = new RunCheckpoint
                     {
                         RecordId        = newRecord.Id,
-                        CheckpointIndex = (uint) (i + 1),
+                        CheckpointIndex = (uint) cp.CheckpointIndex,
                         Time            = cp.Time,
                         Sync            = cp.Sync,
                     };
@@ -562,6 +625,8 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
                 checkpointCol.InsertBulk(checkpoints);
             }
 
+            // Include Time in the projection — re-fetching each row via FindById just to
+            // read Time is an avoidable N+1 (and an NRE if the row vanished mid-flight).
             var existingBests = recordCol.Query()
                                          .Where(r => r.MapId    == newRecord.MapId
                                                      && r.Stage == newRecord.Stage
@@ -573,6 +638,7 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
                                          {
                                              r.Id,
                                              r.SteamId,
+                                             r.Time,
                                          })
                                          .ToList();
 
@@ -581,11 +647,11 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
 
             EAttemptResult result;
 
-            if (serverBest == null || newRecord.Time < recordCol.FindById(serverBest.Id).Time)
+            if (serverBest == null || newRecord.Time < serverBest.Time)
             {
                 result = EAttemptResult.NewServerRecord;
             }
-            else if (playerBest == null || newRecord.Time < recordCol.FindById(playerBest.Id).Time)
+            else if (playerBest == null || newRecord.Time < playerBest.Time)
             {
                 result = EAttemptResult.NewPersonalRecord;
             }
@@ -639,9 +705,12 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
                                     .Where(i => i.SteamId == steamIdValue && i.MapId == mapId.Value)
                                     .ToEnumerable();
 
+        // Group by (style, track, stage) with an Id tiebreak — matches the SQL backend,
+        // which returns the best run per combination rather than collapsing styles/tracks.
         var records = allPlayerRunsOnMap
-                      .GroupBy(run => run.Stage)
+                      .GroupBy(run => (run.Style, run.Track, run.Stage))
                       .Select(stageGroup => stageGroup.OrderBy(run => run.Time)
+                                                      .ThenBy(run => run.Id)
                                                       .First())
                       .OrderBy(bestRun => bestRun.Stage)
                       .ToList();
@@ -712,7 +781,7 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
             return Task.CompletedTask;
         }
 
-        var col = Database.GetCollection<PlayerMapStatsDoc>("player_map_stats");
+        var col = Database.GetCollection<PlayerMapStatsDoc>(PlayerMapStatsTableName);
 
         var existing = col.Query()
                           .Where(x => x.SteamId == steamId.AsPrimitive() && x.MapId == mapId.Value)
@@ -747,7 +816,7 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
             return Task.FromResult((0f, 0));
         }
 
-        var col = Database.GetCollection<PlayerMapStatsDoc>("player_map_stats");
+        var col = Database.GetCollection<PlayerMapStatsDoc>(PlayerMapStatsTableName);
 
         var stats = col.Query()
                        .Where(x => x.SteamId == steamId.AsPrimitive() && x.MapId == mapId.Value)
@@ -928,27 +997,6 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
             var docs = zones.Select(z => ZoneDocument.FromZoneData(z, mapNameKey)).ToList();
             col.InsertBulk(docs);
         }
-
-        return Task.CompletedTask;
-    }
-
-    public Task<ulong> AddZoneAsync(string mapName, ZoneData zone)
-    {
-        var mapNameKey = mapName.ToLowerInvariant();
-        var col = Database.GetCollection<ZoneDocument>(ZoneTableName);
-
-        var doc = ZoneDocument.FromZoneData(zone, mapNameKey);
-        var bsonId = col.Insert(doc);
-
-        return Task.FromResult((ulong)bsonId.AsInt64);
-    }
-
-    public Task DeleteZonesAsync(string mapName)
-    {
-        var mapNameKey = mapName.ToLowerInvariant();
-        var col = Database.GetCollection<ZoneDocument>(ZoneTableName);
-
-        col.DeleteMany(z => z.MapName == mapNameKey);
 
         return Task.CompletedTask;
     }

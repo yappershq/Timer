@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using Source2Surf.Timer.Common.Entities;
 using Source2Surf.Timer.Shared.Models.Zone;
@@ -22,7 +21,14 @@ internal sealed partial class StorageServiceImpl
                                 .Where(z => z.MapId == mapId.Value)
                                 .ToListAsync();
 
-        return entities.Select(ZoneEntityMapper.ToData).ToList();
+        var result = new List<ZoneData>(entities.Count);
+
+        foreach (var entity in entities)
+        {
+            result.Add(ZoneEntityMapper.ToData(entity));
+        }
+
+        return result;
     }
 
     public async Task SaveZonesAsync(string mapName, IReadOnlyList<ZoneData> zones)
@@ -39,7 +45,13 @@ internal sealed partial class StorageServiceImpl
 
             if (zones.Count > 0)
             {
-                var entities = zones.Select(z => ZoneEntityMapper.ToEntity(z, mapId)).ToList();
+                var entities = new List<ZoneEntity>(zones.Count);
+
+                foreach (var zone in zones)
+                {
+                    entities.Add(ZoneEntityMapper.ToEntity(zone, mapId));
+                }
+
                 await _db.Insertable(entities).ExecuteCommandAsync();
             }
 
@@ -51,29 +63,5 @@ internal sealed partial class StorageServiceImpl
 
             throw;
         }
-    }
-
-    public async Task<ulong> AddZoneAsync(string mapName, ZoneData zone)
-    {
-        var mapId  = await EnsureMapIdByNameAsync(mapName);
-        var entity = ZoneEntityMapper.ToEntity(zone, mapId);
-
-        await _db.Insertable(entity).ExecuteCommandAsync();
-
-        return entity.Id;
-    }
-
-    public async Task DeleteZonesAsync(string mapName)
-    {
-        var mapId = await ResolveMapIdByNameAsync(mapName);
-
-        if (mapId is null)
-        {
-            return;
-        }
-
-        await _db.Deleteable<ZoneEntity>()
-                 .Where(z => z.MapId == mapId.Value)
-                 .ExecuteCommandAsync();
     }
 }

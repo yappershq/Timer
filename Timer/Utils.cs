@@ -18,6 +18,7 @@
 using System;
 using System.Text.Json;
 using Cysharp.Text;
+using Sharp.Shared.Definition;
 using Source2Surf.Timer.Shared;
 
 namespace Source2Surf.Timer;
@@ -33,49 +34,18 @@ internal static class Utils
 
     public static string FormatTime(float totalSeconds, bool precise = false)
     {
-        var negative = totalSeconds < 0;
-        var total    = Math.Abs(totalSeconds);
+        var sb = ZString.CreateStringBuilder(true);
 
-        var totalSecondsInt = (int) total;
-        var hours           = totalSecondsInt / 3600;
-        var minutes         = (totalSecondsInt / 60) % 60;
-        var seconds         = totalSecondsInt % 60;
-
-        var fractional = total - totalSecondsInt;
-        var ms         = precise ? (int) (fractional * 1000) : (int) (fractional * 10);
-
-        Span<char> buf = stackalloc char[16];
-        var        pos = 0;
-
-        if (negative) buf[pos++] = '-';
-
-        if (hours > 0)
+        try
         {
-            if (hours >= 100) { buf[pos++] = (char) ('0' + (hours / 100)); }
-            if (hours >= 10)  { buf[pos++] = (char) ('0' + ((hours / 10) % 10)); }
-            buf[pos++] = (char) ('0' + (hours % 10));
-            buf[pos++] = ':';
+            FormatTime(ref sb, totalSeconds, precise);
+
+            return sb.ToString();
         }
-
-        buf[pos++] = (char) ('0' + (minutes / 10));
-        buf[pos++] = (char) ('0' + (minutes % 10));
-        buf[pos++] = ':';
-        buf[pos++] = (char) ('0' + (seconds / 10));
-        buf[pos++] = (char) ('0' + (seconds % 10));
-        buf[pos++] = '.';
-
-        if (precise)
+        finally
         {
-            buf[pos++] = (char) ('0' + (ms / 100));
-            buf[pos++] = (char) ('0' + ((ms / 10) % 10));
-            buf[pos++] = (char) ('0' + (ms % 10));
+            sb.Dispose();
         }
-        else
-        {
-            buf[pos++] = (char) ('0' + ms);
-        }
-
-        return new string(buf[..pos]);
     }
 
     public static void FormatTime(ref Utf16ValueStringBuilder sb, float totalSeconds, bool precise = false)
@@ -109,6 +79,37 @@ internal static class Utils
             AppendPadded3(ref sb, ms);
         else
             sb.Append((char) ('0' + ms));
+    }
+
+    /// <summary>
+    ///     Appends a chat-colored (green) formatted time: <c>{green}MM:SS.mmm{white}</c>.
+    /// </summary>
+    public static void AppendColoredTime(ref Utf16ValueStringBuilder sb, float time, bool precise = true)
+    {
+        sb.Append(ChatColor.LightGreen);
+        FormatTime(ref sb, time, precise);
+        sb.Append(ChatColor.White);
+    }
+
+    /// <summary>
+    ///     Appends a signed chat-colored time delta: red <c>+</c> when losing time,
+    ///     green <c>-</c> when ahead, followed by |delta| and a reset to white.
+    /// </summary>
+    public static void AppendSignedDelta(ref Utf16ValueStringBuilder sb, float delta, bool precise = true)
+    {
+        if (delta >= 0f)
+        {
+            sb.Append(ChatColor.Red);
+            sb.Append('+');
+        }
+        else
+        {
+            sb.Append(ChatColor.LightGreen);
+            sb.Append('-');
+        }
+
+        FormatTime(ref sb, MathF.Abs(delta), precise);
+        sb.Append(ChatColor.White);
     }
 
     private static void AppendPadded2(ref Utf16ValueStringBuilder sb, int value)

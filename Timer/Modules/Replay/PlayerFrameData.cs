@@ -30,13 +30,9 @@ internal class PlayerFrameData
     public int   TimerStartFrame  { get; set; } = 0;
     public int   TimerFinishFrame { get; set; } = 0;
     public float FinishTime       { get; set; } = 0;
-    public int   Style            { get; set; }
-    public int   Track            { get; set; }
 
     public List<int> NewStageTicks        { get; } = [];
     public List<int> StageTimerStartTicks { get; } = [];
-
-    public bool GrabbingPostFrame { get; set; } = false;
 
     public List<ReplayFrameData> Frames { get; set; } = [];
 

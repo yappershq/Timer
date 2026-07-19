@@ -176,14 +176,18 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
             return new ();
         }
 
-        var styleSetting = _styles[timer.Style];
+        var styleSetting = GetStyleOrDefault(timer.Style);
 
         return new (EHookAction.SkipCallReturnOverride, styleSetting.RunSpeed);
     }
 
+    // CS2's max ground speed for the knife (250 * 1.164 speed modifier ≈ 291) — keeps
+    // walk-move from being capped below what surf ramps launch players at.
+    private const int WalkMoveSpeed = 291;
+
     private static void OnPlayerWalkMove(IPlayerWalkMoveForwardParams @params)
     {
-        @params.SetSpeed(291);
+        @params.SetSpeed(WalkMoveSpeed);
     }
 
     private unsafe void OnProcessMovementPre(IPlayerProcessMoveForwardParams @params)
@@ -209,7 +213,7 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
         }
 
         var service = @params.Service;
-        var style   = _styles[mainTimer.Style];
+        var style   = GetStyleOrDefault(mainTimer.Style);
 
         var inStartZone = mainTimer.InZone == EZoneType.Start;
 
@@ -278,7 +282,7 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
             return;
         }
 
-        var style = _styles[info.Style];
+        var style = GetStyleOrDefault(info.Style);
 
         sv_autobunnyhopping.ReplicateToClient(client, style.AutoBhop.ToString());
     }
@@ -319,7 +323,7 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
             return;
         }
 
-        var style = _styles[timerInfo.Style];
+        var style = GetStyleOrDefault(timerInfo.Style);
 
         sv_autobunnyhopping.ReplicateToClient(client, style.AutoBhop.ToString());
     }
@@ -360,6 +364,7 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
             {
                 _logger.LogWarning("Style config is missing or empty, adding default style.");
 
+                _styles = [new ()];
                 File.WriteAllText(_styleConfigPath, JsonSerializer.Serialize(_styles, Utils.SerializerOptions));
             }
             else if (_styles.Count > TimerConstants.MAX_STYLE)
@@ -403,16 +408,8 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
 
             ECommandAction OnStyleCommand(PlayerSlot slot, StringCommand _)
             {
-                var client = _bridge.ClientManager.GetGameClient(slot);
-
-                if (client is null)
-                {
-                    return ECommandAction.Handled;
-                }
-
-                var controller = client.GetPlayerController();
-
-                if (controller is not { IsValidEntity: true }
+                if (_bridge.ClientManager.GetGameClient(slot) is not { } client
+                    || client.GetPlayerController() is not { IsValidEntity: true } controller
                     || _timerModule.GetTimerInfo(slot) is not { } timerInfo
                     || _timerModule.GetStageTimerInfo(slot) is not { } stageTimer)
                 {
@@ -452,7 +449,7 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
 
     private void ReplicateClientCvars(IGameClient client, int styleIndex)
     {
-        var style = _styles[styleIndex];
+        var style = GetStyleOrDefault(styleIndex);
 
         sv_accelerate.ReplicateToClient(client, style.Accelerate.ToString(CultureInfo.InvariantCulture));
         sv_autobunnyhopping.ReplicateToClient(client, style.AutoBhop.ToString(CultureInfo.InvariantCulture));
@@ -480,44 +477,30 @@ internal class StyleModule : IModule, IStyleModule, IGameListener, ITimerModuleL
         => _listenerHub.Unregister(listener);
 
     private void NotifyStyleConfigLoaded(IReadOnlyList<StyleSetting> styles)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnStyleConfigLoaded(styles);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnStyleConfigLoaded listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnStyleConfigLoaded",
+                                  static (l, s) => l.OnStyleConfigLoaded(s),
+                                  styles);
 
     private void NotifyClientStyleChanged(PlayerSlot slot, int oldStyle, int newStyle)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnClientStyleChanged(slot, oldStyle, newStyle);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling OnClientStyleChanged listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnClientStyleChanged",
+                                  static (l, s, o, n) => l.OnClientStyleChanged(s, o, n),
+                                  slot, oldStyle, newStyle);
 
     public StyleSetting GetStyleSetting(int style)
     {
-        if (style < 0 || style >= _styles.Count)
+        // Clamp instead of throwing: external callers (e.g. MiscModule per tick) hold style
+        // indices that go stale when reload_styles shrinks the list — fall back to the
+        // default style rather than blowing up the calling hook.
+        if ((uint) style < (uint) _styles.Count)
         {
-            throw new IndexOutOfRangeException("Style index is out of range");
+            return _styles[style];
         }
 
-        return _styles[style];
+        return _styles.Count > 0 ? _styles[0] : new StyleSetting();
     }
+
+    private StyleSetting GetStyleOrDefault(int style)
+        => GetStyleSetting(style);
 
     public int GetStyleCount()
         => _styles.Count;

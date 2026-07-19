@@ -28,6 +28,7 @@ using Sharp.Shared.Types;
 using Sharp.Shared.Units;
 using Source2Surf.Timer.Extensions;
 using Source2Surf.Timer.Managers.Player;
+using Source2Surf.Timer.Modules.Practice;
 using Source2Surf.Timer.Modules.Record;
 using Source2Surf.Timer.Shared.Interfaces;
 using Source2Surf.Timer.Shared.Interfaces.Listeners;
@@ -74,6 +75,7 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
     private readonly ICommandManager       _commandManager;
     private readonly IRequestManager       _request;
     private readonly IMapInfoModule        _mapInfo;
+    private readonly IPracticeModule       _practiceModule;
     private readonly ILogger<RecordModule> _logger;
 
     // Sub-components
@@ -96,6 +98,7 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
                         IRequestManager       request,
                         ICommandManager       commandManager,
                         IMapInfoModule        mapInfoModule,
+                        IPracticeModule       practiceModule,
                         ILogger<RecordModule> logger)
     {
         _bridge         = bridge;
@@ -105,6 +108,7 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
         _request        = request;
         _commandManager = commandManager;
         _mapInfo        = mapInfoModule;
+        _practiceModule = practiceModule;
         _logger         = logger;
 
         _listenerHub = new ListenerHub<IRecordModuleListener>(logger);
@@ -174,12 +178,12 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
 
     public void OnServerActivate()
     {
+        var currentMapName = _bridge.CurrentMapName;
+
         Task.Run(async () =>
         {
             try
             {
-                var currentMapName = _bridge.GlobalVars.MapName;
-
                 var records = await RetryHelper.RetryAsync(
                     () => _request.GetMapRecords(currentMapName),
                     RetryHelper.IsTransient, _logger, "GetMapRecords"
@@ -220,17 +224,7 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
                         _mapCache.SetWRCheckpoints(style, track, checkpoints);
                     }
 
-                    foreach (var listener in _listenerHub.Snapshot)
-                    {
-                        try
-                        {
-                            listener.OnMapRecordsLoaded();
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogError(ex, "Error when calling OnMapRecordsLoaded listener");
-                        }
-                    }
+                    _listenerHub.NotifyAll("OnMapRecordsLoaded", static l => l.OnMapRecordsLoaded());
                 });
             }
             catch (Exception e)
@@ -278,10 +272,16 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
             return;
         }
 
+        if (_practiceModule.IsInPractice(slot))
+        {
+            controller.PrintToChat("Practice run — not saved.");
+            return;
+        }
+
         _taskTracker.Track(_saver.SaveMapRecordAsync(slot,
                                                      client.SteamId,
                                                      client.Name,
-                                                     _bridge.GlobalVars.MapName,
+                                                     _bridge.CurrentMapName,
                                                      timerInfo,
                                                      attemptId: _replayRecorder.GetAttemptId(slot),
                                                      _bridge.CancellationToken));
@@ -303,10 +303,16 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
             return;
         }
 
+        if (_practiceModule.IsInPractice(slot))
+        {
+            // Don't spam chat per-stage during practice; OnPlayerFinishMap already prints once.
+            return;
+        }
+
         _taskTracker.Track(_saver.SaveStageRecordAsync(slot,
                                                        client.SteamId,
                                                        client.Name,
-                                                       _bridge.GlobalVars.MapName,
+                                                       _bridge.CurrentMapName,
                                                        timerInfo,
                                                        attemptId: _replayRecorder.GetAttemptId(slot),
                                                        _bridge.CancellationToken));
@@ -345,7 +351,7 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
             return;
         }
 
-        var mapName = _bridge.GlobalVars.MapName;
+        var mapName = _bridge.CurrentMapName;
 
         _taskTracker.Track(Task.Run(async () =>
                                     {
@@ -424,7 +430,7 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
         }
 
         var delta   = (float)(_bridge.ModSharp.EngineTime() - start);
-        var mapName = _bridge.GlobalVars.MapName;
+        var mapName = _bridge.CurrentMapName;
 
         _sessionStartTime[slot] = _bridge.ModSharp.EngineTime(); // reset for next session segment
 
@@ -461,7 +467,7 @@ internal partial class RecordModule : IModule, IGameListener, IRecordModule, ITi
             styleFactors[i] = _styleModule.GetStyleSetting(i).ScoreFactor;
         }
 
-        var target = arg.ArgCount > 1 ? arg.GetArg(1) : _bridge.GlobalVars.MapName;
+        var target = arg.ArgCount > 1 ? arg.GetArg(1) : _bridge.CurrentMapName;
         var isAll  = string.Equals(target, "all", StringComparison.OrdinalIgnoreCase);
 
         Task.Run(async () =>

@@ -52,15 +52,6 @@ public class RunRecord : IComparable<RunRecord>
     public float VelocityEndY { get; set; }
     public float VelocityEndZ { get; set; }
 
-    public Vector GetStartVelocity()
-        => new (VelocityStartX, VelocityStartY, VelocityStartZ);
-
-    public Vector GetAverageVelocity()
-        => new (VelocityAvgX, VelocityAvgY, VelocityAvgZ);
-
-    public Vector GetEndVelocity()
-        => new (VelocityEndX, VelocityEndY, VelocityEndZ);
-
     public void SetStartVelocity(Vector velocity)
     {
         VelocityStartX = velocity.X;
@@ -140,15 +131,6 @@ public class RunCheckpoint : IComparable<RunCheckpoint>
         VelocityEndY = velocity.Y;
         VelocityEndZ = velocity.Z;
     }
-
-    public Vector GetStartVelocity()
-        => new (VelocityStartX, VelocityStartY, VelocityStartZ);
-
-    public Vector GetMaxVelocity()
-        => new (VelocityMaxX, VelocityMaxY, VelocityMaxZ);
-
-    public Vector GetEndVelocity()
-        => new (VelocityEndX, VelocityEndY, VelocityEndZ);
 
     public int CompareTo(RunCheckpoint? other)
         => other is null ? 1 : Time.CompareTo(other.Time);

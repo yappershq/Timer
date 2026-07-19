@@ -19,7 +19,6 @@ using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
 using Microsoft.Extensions.Logging;
 using Sharp.Shared.Enums;
 using Sharp.Shared.Listeners;
@@ -40,7 +39,6 @@ internal class CommandManager : IManager, ICommandManager, IClientListener
 
     private readonly Dictionary<string, ICommandManager.ClientCommandDelegate> _clientChatCommands;
     private readonly Dictionary<string, ICommandManager.ClientCommandDelegate> _styleCommands;
-    private readonly Dictionary<string, IClientManager.DelegateClientCommand>  _clientCommandListeners;
     private readonly FrozenSet<char>                                           _commandTriggers;
 
     private readonly ILogger<CommandManager> _logger;
@@ -50,11 +48,12 @@ internal class CommandManager : IManager, ICommandManager, IClientListener
         _bridge        = bridge;
         _logger        = logger;
 
-        _clientChatCommands     = [];
-        _styleCommands          = [];
-        _clientCommandListeners = [];
-        _adminChatCommands      = [];
-        _serverCommands         = [];
+        // OrdinalIgnoreCase enables allocation-free ReadOnlySpan<char> alternate lookups
+        // in OnClientSayCommand while keeping mixed-case chat input working.
+        _clientChatCommands = new (StringComparer.OrdinalIgnoreCase);
+        _styleCommands      = new (StringComparer.OrdinalIgnoreCase);
+        _adminChatCommands  = new (StringComparer.OrdinalIgnoreCase);
+        _serverCommands     = [];
 
         HashSet<char> set = ['!', '/', '.', '！', '．', '／', '。'];
         _commandTriggers = set.ToFrozenSet();
@@ -66,34 +65,63 @@ internal class CommandManager : IManager, ICommandManager, IClientListener
     public ECommandAction OnClientSayCommand(IGameClient client, bool teamOnly, bool isCommand, string commandName,
                                              string      message)
     {
-        if (message.Distinct().Count() == 1 || !_commandTriggers.Contains(message[0]))
+        if (string.IsNullOrEmpty(message) || !_commandTriggers.Contains(message[0]))
         {
             return ECommandAction.Skipped;
         }
 
-        var split = message.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var text = message.AsSpan(1).Trim(' ');
 
-        var rawCommand = split[0][1..].ToLowerInvariant();
+        var spaceIndex  = text.IndexOf(' ');
+        var commandSpan = spaceIndex < 0 ? text : text[..spaceIndex];
 
-        var startIndex = rawCommand.Length + 1;
-        var arguments  = message.Length > startIndex ? message[startIndex..] : null;
-
-        if (_styleCommands.TryGetValue(rawCommand, out var callback)
-            || _clientChatCommands.TryGetValue(rawCommand, out callback))
+        if (commandSpan.IsEmpty)
         {
-            return callback(client.Slot, new (rawCommand, true, arguments));
+            return ECommandAction.Skipped;
         }
 
-        if (_adminChatCommands.TryGetValue(rawCommand, out callback))
+        if (_styleCommands.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(commandSpan, out var callback)
+            || _clientChatCommands.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(commandSpan, out callback))
         {
+            return callback(client.Slot, BuildCommand(commandSpan, text, spaceIndex));
+        }
+
+        if (_adminChatCommands.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(commandSpan, out callback))
+        {
+            // The built-in CommandManager has no permission provider, so it cannot honor
+            // the permissions passed to AddAdminChatCommand.
 #if DEBUG
-            return callback(client.Slot, new (rawCommand, true, arguments));
+            _logger.LogWarning("Admin command '{cmd}' executed WITHOUT a permission check (built-in CommandManager, DEBUG builds only).",
+                               commandSpan.ToString());
+
+            return callback(client.Slot, BuildCommand(commandSpan, text, spaceIndex));
 #else
+            _logger.LogWarning("Admin command '{cmd}' ignored: the built-in CommandManager has no permission provider.",
+                               commandSpan.ToString());
+
             return ECommandAction.Handled;
 #endif
         }
 
         return ECommandAction.Skipped;
+    }
+
+    private static StringCommand BuildCommand(ReadOnlySpan<char> command, ReadOnlySpan<char> text, int spaceIndex)
+    {
+        string? arguments = null;
+
+        if (spaceIndex >= 0)
+        {
+            var argsSpan = text[(spaceIndex + 1)..].TrimStart(' ');
+
+            if (!argsSpan.IsEmpty)
+            {
+                arguments = argsSpan.ToString();
+            }
+        }
+
+        // Handlers switch on CommandName with lowercase literals — keep it normalized.
+        return new (command.ToString().ToLowerInvariant(), true, arguments);
     }
 
     public void AddClientChatCommand(string command, ICommandManager.ClientCommandDelegate handler)
@@ -106,6 +134,11 @@ internal class CommandManager : IManager, ICommandManager, IClientListener
         _logger.LogWarning("{cmd} is already added in _clientChatCommands.", command);
     }
 
+    /// <remarks>
+    /// The built-in CommandManager has no permission provider: <paramref name="permissions"/>
+    /// is ignored, and registered admin commands only execute in DEBUG builds (unchecked).
+    /// An external ICommandManager module is required for real admin-permission handling.
+    /// </remarks>
     public void AddAdminChatCommand(string command, ImmutableArray<string> permissions, ICommandManager.ClientCommandDelegate handler)
     {
         if (_adminChatCommands.TryAdd(command, handler))
@@ -124,6 +157,8 @@ internal class CommandManager : IManager, ICommandManager, IClientListener
 
             return;
         }
+
+        _logger.LogWarning("{cmd} is already added in _serverCommands.", command);
     }
 
     public void AddStyleCommand(string command, ICommandManager.ClientCommandDelegate handler)
@@ -150,11 +185,6 @@ internal class CommandManager : IManager, ICommandManager, IClientListener
 
     public void Shutdown()
     {
-        foreach (var (command, handler) in _clientCommandListeners)
-        {
-            _bridge.ClientManager.RemoveCommandListener(command, handler);
-        }
-
         foreach (var (command, _) in _serverCommands)
         {
             _bridge.ConVarManager.ReleaseCommand(command);

@@ -17,6 +17,7 @@
 
 using System;
 using System.Collections.Generic;
+using Sharp.Shared.Enums;
 using Sharp.Shared.GameEntities;
 using Sharp.Shared.Objects;
 using Sharp.Shared.Units;
@@ -50,6 +51,12 @@ internal class ReplayBotData : IReplayBotData
     public EReplayBotType Type { get; init; } = EReplayBotType.Looping;
 
     public Guid? Timer { get; set; } = null;
+
+    // Cached PushTimer callbacks, created once per bot (lazy ??=). The start-delay and
+    // loop-advance timers fire once per replay cycle; caching the delegate here avoids
+    // allocating a fresh closure + delegate on every cycle.
+    public Func<TimerAction>? StartDelayCallback  { get; set; }
+    public Func<TimerAction>? LoopAdvanceCallback { get; set; }
 
     public int GetCurrentStage()
     {

@@ -10,7 +10,16 @@ namespace Source2Surf.Timer.Common.Entities;
             nameof(MapId), OrderByType.Asc,
             nameof(Style), OrderByType.Asc,
             nameof(Track), OrderByType.Asc,
-            true)]  // Unique index
+            true)]  // Unique index; serves the IN(SteamId)/GROUP BY total-points aggregation.
+// Covers the recalc delta-read (WHERE MapId=? AND Style=? AND Track=?, no SteamId predicate), which
+// the SteamId-leading unique index above cannot serve. SteamId+Points trailing make it index-only.
+[SugarIndex("idx_player_track_scores_map_style_track",
+            nameof(MapId), OrderByType.Asc,
+            nameof(Style), OrderByType.Asc,
+            nameof(Track), OrderByType.Asc,
+            nameof(SteamId), OrderByType.Asc,
+            nameof(Points), OrderByType.Asc,
+            false)]
 internal sealed class PlayerTrackScoreEntity
 {
     [SugarColumn(IsPrimaryKey = true, IsIdentity = true)]

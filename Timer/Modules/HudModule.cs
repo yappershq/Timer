@@ -17,13 +17,13 @@
 
 using System;
 using Cysharp.Text;
-using Microsoft.Extensions.Logging;
 using Sharp.Shared.Enums;
 using Sharp.Shared.GameEntities;
 using Sharp.Shared.HookParams;
 using Sharp.Shared.Objects;
 using Sharp.Shared.Types;
 using Sharp.Shared.Units;
+using Source2Surf.Timer.Modules.Practice;
 using Source2Surf.Timer.Modules.Replay;
 using Source2Surf.Timer.Shared;
 using Source2Surf.Timer.Shared.Interfaces.Listeners;
@@ -44,14 +44,13 @@ internal class HudModule : IModule, IHudModule, ITimerModuleListener, IZoneModul
 
     private readonly InterfaceBridge _bridge;
 
-    private readonly ITimerModule  _timerModule;
-    private readonly IReplayModule _replayModule;
-    private readonly IRecordModule _recordModule;
-    private readonly IZoneModule   _zoneModule;
+    private readonly ITimerModule    _timerModule;
+    private readonly IReplayModule   _replayModule;
+    private readonly IRecordModule   _recordModule;
+    private readonly IZoneModule     _zoneModule;
+    private readonly IPracticeModule _practiceModule;
 
-    private readonly ILogger<HudModule> _logger;
-
-    private static readonly float[] NextHudUpdateTime = new float[PlayerSlot.MaxPlayerCount];
+    private readonly float[] _nextHudUpdateTime = new float[PlayerSlot.MaxPlayerCount];
 
     // Cached WRCP diff from the last completed stage, shown inline after the main timer
     private readonly float?[] _lastStageDelta = new float?[PlayerSlot.MaxPlayerCount];
@@ -61,20 +60,19 @@ internal class HudModule : IModule, IHudModule, ITimerModuleListener, IZoneModul
 
     // ReSharper restore InconsistentNaming
 
-    public HudModule(InterfaceBridge    bridge,
-                     ITimerModule       timerModule,
-                     IReplayModule      replayModule,
-                     IRecordModule      recordModule,
-                     IZoneModule        zoneModule,
-                     ILogger<HudModule> logger)
+    public HudModule(InterfaceBridge bridge,
+                     ITimerModule    timerModule,
+                     IReplayModule   replayModule,
+                     IRecordModule   recordModule,
+                     IZoneModule     zoneModule,
+                     IPracticeModule practiceModule)
     {
-        _bridge       = bridge;
-        _timerModule  = timerModule;
-        _replayModule = replayModule;
-        _recordModule = recordModule;
-        _zoneModule   = zoneModule;
-
-        _logger = logger;
+        _bridge         = bridge;
+        _timerModule    = timerModule;
+        _replayModule   = replayModule;
+        _recordModule   = recordModule;
+        _zoneModule     = zoneModule;
+        _practiceModule = practiceModule;
 
         show_survival_respawn_status_event = bridge.EventManager.CreateEvent("show_survival_respawn_status", true)
                                              ?? throw new
@@ -154,14 +152,17 @@ internal class HudModule : IModule, IHudModule, ITimerModuleListener, IZoneModul
 
         var slot = client.Slot;
         var now  = _bridge.GlobalVars.CurTime;
-        var next = NextHudUpdateTime[slot];
+        var next = _nextHudUpdateTime[slot];
 
-        if (now < next && next - now <= TimerConstants.TickInterval * 2)
+        // Skip while within one interval of the scheduled update; if `next` is further
+        // ahead than one interval it is stale (CurTime reset on map change) — fall
+        // through and re-anchor.
+        if (now < next && next - now <= HudUpdateInterval)
         {
             return;
         }
 
-        NextHudUpdateTime[slot] = now + HudUpdateInterval;
+        _nextHudUpdateTime[slot] = now + HudUpdateInterval;
 
         var pawn = param.Pawn;
 
@@ -219,25 +220,11 @@ internal class HudModule : IModule, IHudModule, ITimerModuleListener, IZoneModul
 
         try
         {
-            // Compute WR diff: prefer checkpoint-based, fall back to last completed stage WRCP diff
-            var    wrCheckpoints = _recordModule.GetWRCheckpoints(timerInfo.Style, timerInfo.Track);
-            var    cpIndex       = timerInfo.Checkpoint;
-            float? wrDelta;
-
-            if (wrCheckpoints is { Count: > 0 } && cpIndex >= 1 && cpIndex <= wrCheckpoints.Count)
-            {
-                var wrCpTime = wrCheckpoints[cpIndex - 1].Time;
-
-                var playerCpTime = timerInfo.Checkpoints.Count >= cpIndex
-                    ? timerInfo.Checkpoints[cpIndex - 1].Time
-                    : timerInfo.Time;
-
-                wrDelta = playerCpTime - wrCpTime;
-            }
-            else
-            {
-                wrDelta = _lastStageDelta[slot];
-            }
+            // Two complementary diffs:
+            //   posDelta: live position projection vs WR replay (continuous, updates every HUD tick)
+            //   cpDelta:  checkpoint-anchored (precise at gates), or last stage WRCP if no CPs yet
+            var posDelta = TryComputePositionDelta(pawn, timerInfo);
+            var cpDelta  = TryComputeCheckpointDelta(timerInfo) ?? _lastStageDelta[slot];
 
             // Timer color based on status: running=green, paused=yellow, stopped=white
             var timeColor = timerInfo.Status switch
@@ -257,21 +244,29 @@ internal class HudModule : IModule, IHudModule, ITimerModuleListener, IZoneModul
 
             sb.Append("</span>");
 
-            // WR diff inline after time
-            if (wrDelta is { } delta)
+            // Practice marker — visible whenever the player has saved/teleported.
+            if (_practiceModule.IsInPractice(slot))
             {
-                if (delta >= 0f)
+                sb.Append(" <span color='#FF8800'>[PRACTICE]</span>");
+            }
+
+            // WR diff inline after time. The whole parens block is gated on cpDelta —
+            // matches the pre-time-diff behavior where nothing was shown if there was no
+            // checkpoint/stage delta available. The live position diff is layered IN FRONT
+            // of WRCP when available, so the result reads "(±posDelta | WRCP: ±cpDelta)".
+            if (cpDelta is { } cd)
+            {
+                sb.Append(" <span color='#888888'>(</span>");
+
+                if (posDelta is { } pd)
                 {
-                    sb.Append(" <span color='#FF4444'>(WR +");
-                    Utils.FormatTime(ref sb, delta, true);
-                }
-                else
-                {
-                    sb.Append(" <span color='#44FF44'>(WR -");
-                    Utils.FormatTime(ref sb, MathF.Abs(delta), true);
+                    AppendColoredDelta(ref sb, pd);
+                    sb.Append("<span color='#888888'> | </span>");
                 }
 
-                sb.Append(")</span>");
+                sb.Append("<span color='#888888'>WRCP: </span>");
+                AppendColoredDelta(ref sb, cd);
+                sb.Append("<span color='#888888'>)</span>");
             }
 
             sb.Append("<br>");
@@ -315,6 +310,78 @@ internal class HudModule : IModule, IHudModule, ITimerModuleListener, IZoneModul
         {
             sb.Dispose();
         }
+    }
+
+    // Hide live diff if the closest WR frame is farther than this — beyond ~one ramp width the
+    // projection is meaningless (player on a wholly different path).
+    private const float MaxPositionDiffDistSq = 256f * 256f;
+
+    // Suppress nonsense large deltas (wrong replay associated, teleport mid-run, etc).
+    private const float MaxAbsPositionDelta = 600f;
+
+    private float? TryComputePositionDelta(IBasePlayerPawn pawn, ITimerInfo timerInfo)
+    {
+        // Only meaningful while the clock is actually counting and after the start zone.
+        if (timerInfo.Status != ETimerStatus.Running)
+        {
+            return null;
+        }
+
+        if (timerInfo.Time <= 0f)
+        {
+            return null;
+        }
+
+        var pos = pawn.GetAbsOrigin();
+        var idx = _replayModule.FindClosestFrameIndex(timerInfo.Style, timerInfo.Track, stage: 0, pos, out var distSq);
+
+        if (idx < 0 || distSq > MaxPositionDiffDistSq)
+        {
+            return null;
+        }
+
+        var replay = _replayModule.GetCachedReplay(timerInfo.Style, timerInfo.Track, stage: 0);
+        if (replay is null)
+        {
+            return null;
+        }
+
+        // Closest frame falls inside the pre-run prefix — player is still in / near the start zone,
+        // no meaningful comparison yet.
+        var wrTimeFrames = idx - replay.Header.PreFrame;
+        if (wrTimeFrames <= 0)
+        {
+            return null;
+        }
+
+        var wrTime = wrTimeFrames * TimerConstants.TickInterval;
+        var delta  = timerInfo.Time - wrTime;
+
+        if (delta < -MaxAbsPositionDelta || delta > MaxAbsPositionDelta)
+        {
+            return null;
+        }
+
+        return delta;
+    }
+
+    private float? TryComputeCheckpointDelta(ITimerInfo timerInfo)
+    {
+        var wrCheckpoints = _recordModule.GetWRCheckpoints(timerInfo.Style, timerInfo.Track);
+        var cpIndex       = timerInfo.Checkpoint;
+
+        if (wrCheckpoints is not { Count: > 0 } || cpIndex < 1 || cpIndex > wrCheckpoints.Count)
+        {
+            return null;
+        }
+
+        var wrCpTime = wrCheckpoints[cpIndex - 1].Time;
+
+        var playerCpTime = timerInfo.Checkpoints.Count >= cpIndex
+            ? timerInfo.Checkpoints[cpIndex - 1].Time
+            : timerInfo.Time;
+
+        return playerCpTime - wrCpTime;
     }
 
     private void PrintReplayHud(IGameClient client, IPlayerPawn pawn, ReplayBotData bot)
@@ -428,6 +495,40 @@ internal class HudModule : IModule, IHudModule, ITimerModuleListener, IZoneModul
 
         sb.Append((char) (h1 < 10 ? h1 + '0' : h1 + ('A' - 10)));
         sb.Append((char) (h2 < 10 ? h2 + '0' : h2 + ('A' - 10)));
+    }
+
+    // Compact signed delta: "+1.3", "-0.4", "+1:23.4" etc. One decimal of seconds.
+    // Mirrors what surf/bhop players are used to seeing inline next to their timer.
+    private static void AppendDelta(ref Utf16ValueStringBuilder sb, float delta)
+    {
+        sb.Append(delta >= 0f ? '+' : '-');
+
+        var abs = MathF.Abs(delta);
+
+        if (abs < 60f)
+        {
+            var seconds = (int) abs;
+            var deci    = (int) ((abs - seconds) * 10f);
+            if (deci > 9) deci = 9;
+
+            sb.Append(seconds);
+            sb.Append('.');
+            sb.Append((char) ('0' + deci));
+        }
+        else
+        {
+            // Re-use existing MM:SS.D formatter for long deltas (rare; usually sub-minute).
+            Utils.FormatTime(ref sb, abs);
+        }
+    }
+
+    private static void AppendColoredDelta(ref Utf16ValueStringBuilder sb, float delta)
+    {
+        // Positive delta = behind WR (red). Negative delta = ahead of WR (green).
+        var color = delta >= 0f ? "#FF4444" : "#44FF44";
+        sb.AppendFormat("<span color='{0}'>", color);
+        AppendDelta(ref sb, delta);
+        sb.Append("</span>");
     }
 
     private static void AppendFixedPoint1(ref Utf16ValueStringBuilder sb, float value)

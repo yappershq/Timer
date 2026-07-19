@@ -161,7 +161,7 @@ internal sealed class RecordSaver
                                                                               ct)
                                              .ConfigureAwait(false);
 
-                                await RefreshMapRecord(style, track).ConfigureAwait(false);
+                                await RefreshMapRecord(mapName, style, track).ConfigureAwait(false);
                             }
                             catch (Exception e)
                             {
@@ -230,7 +230,7 @@ internal sealed class RecordSaver
                                              })
                                              .ConfigureAwait(false);
 
-                                await RefreshMapStageRecord(style, track, stage).ConfigureAwait(false);
+                                await RefreshMapStageRecord(mapName, style, track, stage).ConfigureAwait(false);
                             }
                             catch (Exception e)
                             {
@@ -240,12 +240,12 @@ internal sealed class RecordSaver
                         ct);
     }
 
-    private async Task RefreshMapRecord(int style, int track)
+    private async Task RefreshMapRecord(string mapName, int style, int track)
     {
         try
         {
             var records = await RetryHelper.RetryAsync(
-                () => _request.GetMapRecords(_bridge.GlobalVars.MapName, style, track),
+                () => _request.GetMapRecords(mapName, style, track),
                 RetryHelper.IsTransient, _logger, "GetMapRecords"
             ).ConfigureAwait(false);
 
@@ -279,7 +279,7 @@ internal sealed class RecordSaver
         }
     }
 
-    private async Task RefreshMapStageRecord(int style, int track, int stage)
+    private async Task RefreshMapStageRecord(string mapName, int style, int track, int stage)
     {
         if (!IsValidStageIndex(stage))
         {
@@ -294,7 +294,7 @@ internal sealed class RecordSaver
         try
         {
             var records = await RetryHelper.RetryAsync(
-                () => _request.GetMapStageRecords(_bridge.GlobalVars.MapName, style, track, stage),
+                () => _request.GetMapStageRecords(mapName, style, track, stage),
                 RetryHelper.IsTransient, _logger, "GetMapStageRecords"
             ).ConfigureAwait(false);
 
@@ -311,19 +311,9 @@ internal sealed class RecordSaver
     }
 
     private void NotifyRecordSavedListeners(PlayerRecordSavedEvent recordEvent)
-    {
-        foreach (var listener in _listenerHub.Snapshot)
-        {
-            try
-            {
-                listener.OnRecordSaved(recordEvent);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(exception, "Error when calling RecordSave listener");
-            }
-        }
-    }
+        => _listenerHub.NotifyAll("OnRecordSaved",
+                                  static (l, e) => l.OnRecordSaved(e),
+                                  recordEvent);
 
     private static bool IsValidStageIndex(int stage) =>
         stage is >= 1 and < TimerConstants.MAX_STAGE;

@@ -51,7 +51,13 @@ internal unsafe partial class MiscModule
 
         if (weapon is not null)
         {
-            _bridge.ModSharp.InvokeFrameAction(() => pawn.RemovePlayerItem(weapon));
+            _bridge.ModSharp.InvokeFrameAction(() =>
+            {
+                if (pawn is { IsValidEntity: true } && weapon is { IsValidEntity: true })
+                {
+                    pawn.RemovePlayerItem(weapon);
+                }
+            });
         }
 
         if (command.CommandName.Equals("knife", StringComparison.OrdinalIgnoreCase))

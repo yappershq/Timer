@@ -26,8 +26,14 @@ internal sealed partial class StorageServiceImpl
 
         var rows = await QueryBestMainRunsForPlayerAsync(steamId, mapId.Value);
 
-        return rows.Select(ToRunRecord)
-                   .ToList();
+        var result = new List<RunRecord>(rows.Count);
+
+        foreach (var run in rows)
+        {
+            result.Add(ToRunRecord(run));
+        }
+
+        return result;
     }
 
     public async Task<RunRecord?> GetPlayerRecord(SteamID steamId, string mapName, int style, int track)
@@ -72,8 +78,14 @@ internal sealed partial class StorageServiceImpl
 
         var runs = await QueryBestStageRunsForPlayerAsync(steamId, mapId.Value);
 
-        return runs.Select(ToRunRecord)
-                   .ToList();
+        var result = new List<RunRecord>(runs.Count);
+
+        foreach (var run in runs)
+        {
+            result.Add(ToRunRecord(run));
+        }
+
+        return result;
     }
 
     public async Task<PlayerProfile> GetPlayerProfile(SteamID steamId, string name)
@@ -136,26 +148,19 @@ internal sealed partial class StorageServiceImpl
         return profile;
     }
 
-    private ISugarQueryable<RunEntity> QueryMainRuns()
-        => _db.Queryable<RunEntity>()
-              .Where(run => run.RunType == RunType.Main);
-
-    private ISugarQueryable<RunEntity> QueryStageRuns()
-        => _db.Queryable<RunEntity>()
-              .Where(run => run.RunType == RunType.Stage);
-
     public async Task<(int rank, int total)> GetPlayerPointsRank(SteamID steamId)
     {
-        var player = await _db.Queryable<PlayerEntity>()
-                              .Where(x => x.SteamId == steamId)
-                              .FirstAsync();
+        // Scalar projection (Points is a plain uint — no SteamID-converter concern);
+        // no row and zero points both come back as 0.
+        var playerPoints = await _db.Queryable<PlayerEntity>()
+                                    .Where(x => x.SteamId == steamId)
+                                    .Select(x => x.Points)
+                                    .FirstAsync();
 
-        if (player is null || player.Points == 0)
+        if (playerPoints == 0)
         {
             return (0, 0);
         }
-
-        var playerPoints = player.Points;
 
         // Single query: COUNT(*) for total, SUM(CASE) for rank
         var stats = await _db.Queryable<PlayerEntity>()

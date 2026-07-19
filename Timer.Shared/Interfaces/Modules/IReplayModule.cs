@@ -15,21 +15,32 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+using Sharp.Shared.Types;
 using Sharp.Shared.Units;
-using Source2Surf.Timer.Shared.Interfaces.Listeners;
 using Source2Surf.Timer.Shared.Models.Replay;
 
 namespace Source2Surf.Timer.Shared.Interfaces.Modules;
 
 /// <summary>
-/// Public interface for the replay module, providing bot data access and listener management.
+/// Public interface for the replay module, providing bot data access.
 /// </summary>
 public interface IReplayModule
 {
     IReplayBotData? GetReplayBotData(PlayerSlot slot);
     IReplayBotData? GetReplayBotByIndex(int index);
-    int GetReplayBotCount();
 
-    void RegisterListener(IReplayModuleListener listener);
-    void UnregisterListener(IReplayModuleListener listener);
+    /// <summary>
+    ///     Returns the cached replay for <c>(style, track, stage)</c>, or <c>null</c> when not loaded.
+    /// </summary>
+    ReplayContent? GetCachedReplay(int style, int track, int stage);
+
+    /// <summary>
+    ///     Returns the index of the replay frame whose Origin is closest to <paramref name="position" />.
+    ///     Returns <c>-1</c> when no replay is cached for <c>(style, track, stage)</c>.
+    /// </summary>
+    /// <param name="distanceSquared">
+    ///     Squared distance between <paramref name="position" /> and the closest frame's origin,
+    ///     or <see cref="float.PositiveInfinity" /> when no replay is cached.
+    /// </param>
+    int FindClosestFrameIndex(int style, int track, int stage, in Vector position, out float distanceSquared);
 }

@@ -26,10 +26,10 @@ internal sealed partial class StorageServiceImpl
             MapId         = mapInfo.MapId,
             MapName       = mapInfo.File,
             Stages        = mapInfo.Stages,
-            Bonuses       = 0,
+            Bonuses       = mapInfo.Bonuses,
             Tier          = tiers,
-            PlayCount     = 0,
-            TotalPlayTime = 0,
+            PlayCount     = mapInfo.PlayCount,
+            TotalPlayTime = mapInfo.TotalPlayTime,
         };
     }
 
