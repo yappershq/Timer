@@ -56,5 +56,8 @@ internal static class ModuleDI
 
         // KZ port: !pistol <name> (cs2kz src/kz/pistol).
         services.ImplSingleton<IPistolModule, IModule, PistolModule>();
+
+        // KZ port: stackable styles (ABH/LGJ; cs2kz src/kz/style). Layers on top of the mode.
+        services.ImplSingleton<IKzStyleModule, IModule, KzStyleModule>();
     }
 }

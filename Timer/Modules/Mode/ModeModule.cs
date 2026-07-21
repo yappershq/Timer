@@ -27,6 +27,9 @@ internal interface IModeModule
 {
     /// <summary>The player's current mode id (default "vnl").</summary>
     string GetMode(PlayerSlot slot);
+
+    /// <summary>Re-apply the player's current mode convars (base layer; styles stack on top after).</summary>
+    void Reapply(PlayerSlot slot);
 }
 
 /// <summary>A KZ movement mode: an id/name + the movement convar values it replicates per-player.</summary>
@@ -78,6 +81,13 @@ internal sealed class ModeModule : IModule, IModeModule
     public void Shutdown() => _bridge.HookManager.PlayerSpawnPost.RemoveForward(OnPlayerSpawnPost);
 
     public string GetMode(PlayerSlot slot) => _current[slot];
+
+    public void Reapply(PlayerSlot slot)
+    {
+        if (_modes.GetValueOrDefault(_current[slot]) is { } mode
+            && _bridge.ClientManager.GetGameClient(slot) is { IsFakeClient: false } client)
+            Apply(client, mode);
+    }
 
     private void Register(IKzMode mode)
     {
