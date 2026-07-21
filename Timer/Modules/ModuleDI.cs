@@ -59,5 +59,8 @@ internal static class ModuleDI
 
         // KZ port: stackable styles (ABH/LGJ; cs2kz src/kz/style). Layers on top of the mode.
         services.ImplSingleton<IKzStyleModule, IModule, KzStyleModule>();
+
+        // KZ port: jumpstats foundation — LJ/BH detection + distance tiers (cs2kz src/kz/jumpstats).
+        services.ImplSingleton<IJumpstatsModule, IModule, JumpstatsModule>();
     }
 }
