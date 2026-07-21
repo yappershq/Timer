@@ -486,11 +486,25 @@ public sealed class KreedzAnticheat : IModSharpModule
         catch (Exception e) { _logger.LogError(e, "[KZ.AC] failed to persist infraction for {Sid}", sid); }
     }
 
+    // cs2kz anticheat/detectors/cvars.cpp — the 11 checked client cvars + exact thresholds. This runs only
+    // with the server's sv_cheats off (gated at the caller), so the cheat-cvar checks are always enforceable.
     private static string? FirstViolation(IGameClient client)
     {
-        if (Value(client, "m_yaw")        is { } yaw && Math.Abs(yaw - 0.022) > 0.0005) return "m_yaw";
-        if (Value(client, "cl_pitchdown") is { } pd  && pd > 89.0001)                   return "cl_pitchdown";
-        if (Value(client, "cl_pitchup")   is { } pu  && pu < -89.0001)                  return "cl_pitchup";
+        // Movement-integrity cvars (checked regardless).
+        if (Value(client, "m_yaw")          is { } yaw && yaw > 0.3)                    return "m_yaw";        // MAXIMUM_M_YAW
+        if (Value(client, "fps_max")        is { } fps && fps > 0.0 && fps < 64.0)      return "fps_max";      // MINIMUM_FPS_MAX
+        if (Value(client, "sensitivity")    is { } s   && (s < 0.0001 || s > 20.0))     return "sensitivity";  // capped 0.0001..8 (20 for headroom)
+        if (Value(client, "cl_pitchdown")   is { } pd  && Math.Abs(pd - 89.0)  > 0.001) return "cl_pitchdown"; // must be 89
+        if (Value(client, "cl_pitchup")     is { } pu  && Math.Abs(pu - 89.0)  > 0.001) return "cl_pitchup";   // must be 89 (was wrongly -89)
+        if (Value(client, "cl_yawspeed")    is { } ys  && Math.Abs(ys - 210.0) > 0.001) return "cl_yawspeed";  // must be 210
+
+        // Cheat cvars (client should mirror the server's sv_cheats=0).
+        if (Value(client, "sv_cheats")      is { } sc  && sc != 0.0)                     return "sv_cheats";
+        if (Value(client, "cl_showpos")     is { } cp  && cp != 0.0)                     return "cl_showpos";
+        if (Value(client, "cam_showangles") is { } ca  && ca != 0.0)                     return "cam_showangles";
+        if (Value(client, "cl_drawhud")     is { } dh  && dh == 0.0)                     return "cl_drawhud";   // default 1, disabled = cheat
+        if (Value(client, "fov_cs_debug")   is { } fd  && fd != 0.0)                     return "fov_cs_debug";
+
         return null;
     }
 
