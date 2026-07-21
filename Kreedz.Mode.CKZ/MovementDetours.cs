@@ -51,8 +51,11 @@ internal sealed unsafe class MovementDetours
 
     // Reverse map {native CCSPlayer_MovementServices* -> slot}, filled from the managed ProcessMove hook
     // (which has both the pawn and the slot) so the raw native detours can resolve the player.
+    private const float SpeedNormal = 250.0f; // cs2kz SPEED_NORMAL
+
     private readonly Dictionary<nint, int> _slotByMs   = new();
     private readonly Vector[]              _lastPlane   = new Vector[PlayerSlot.MaxPlayerCount];
+    private readonly float[]               _gain        = new float[PlayerSlot.MaxPlayerCount];
 
     private static MovementDetours? _self;
 
@@ -76,6 +79,10 @@ internal sealed unsafe class MovementDetours
         if (movementServicePtr != 0)
             _slotByMs[movementServicePtr] = slot;
     }
+
+    /// <summary>Share the player's current prestrafe gain (computed in the managed hook) so the AirMove
+    /// detour can restore max speed to 250+gain after the air-move (cs2kz OnAirMovePost).</summary>
+    public void SetGain(int slot, float gain) => _gain[slot] = gain;
 
     public bool Installed { get; private set; }
 
@@ -154,9 +161,15 @@ internal sealed unsafe class MovementDetours
     private static void Hk_WalkMove(nint ms, nint mv)
         => ((delegate* unmanaged<nint, nint, void>)_tWalkMove)(ms, mv);
 
-    [UnmanagedCallersOnly]
+    [UnmanagedCallersOnly] // CKZ OnAirMove/Post: cap air wishspeed at 250 during the air-move, restore 250+gain after
     private static void Hk_AirMove(nint ms, nint mv)
-        => ((delegate* unmanaged<nint, nint, void>)_tAirMove)(ms, mv);
+    {
+        var slot = _self is not null && _self._slotByMs.TryGetValue(ms, out var s) ? s : -1;
+
+        if (slot >= 0) Move(mv).MaxSpeed = SpeedNormal;                    // OnAirMove
+        ((delegate* unmanaged<nint, nint, void>)_tAirMove)(ms, mv);        // engine air-move
+        if (slot >= 0) Move(mv).MaxSpeed = SpeedNormal + _self!._gain[slot]; // OnAirMovePost
+    }
 
     [UnmanagedCallersOnly] // CKZ: rampbug/slopefix
     private static void Hk_TryPlayerMove(nint ms, nint mv, nint firstDest, nint firstTrace, nint blocked)

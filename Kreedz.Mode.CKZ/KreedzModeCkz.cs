@@ -178,6 +178,9 @@ public sealed class KreedzModeCkz : IModSharpModule
 
         CalcPrestrafe(slot, arg.Pawn.GetAbsVelocity(), onGround, frametime, curtime);
 
+        // Share the gain so the AirMove detour can restore 250+gain after the air-move (cs2kz OnAirMovePost).
+        if (_detours.Installed) _detours.SetGain(slot, GetPrestrafeGain(slot));
+
         _wasGround[slot] = onGround;
     }
 
