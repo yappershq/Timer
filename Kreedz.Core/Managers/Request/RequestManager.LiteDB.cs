@@ -198,6 +198,23 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
         return Task.CompletedTask;
     }
 
+    public Task SaveJumpAsync(SteamID steamId, string jumpType, float distance, int strafes, float sync, float gain, float maxSpeed, float height)
+    {
+        Database.GetCollection<BsonDocument>("kz_jumpstats").Insert(new BsonDocument
+        {
+            ["steamid"]  = (long) steamId.AsPrimitive(),
+            ["jumptype"] = jumpType,
+            ["distance"] = (double) distance,
+            ["strafes"]  = strafes,
+            ["sync"]     = (double) sync,
+            ["gain"]     = (double) gain,
+            ["maxspeed"] = (double) maxSpeed,
+            ["height"]   = (double) height,
+            ["created"]  = DateTime.UtcNow,
+        });
+        return Task.CompletedTask;
+    }
+
     /// <summary>SteamIDs with an active (unexpired) ban — excluded from the public leaderboard reads.</summary>
     private HashSet<ulong> ActiveBanSet()
     {

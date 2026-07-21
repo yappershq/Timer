@@ -38,6 +38,21 @@ internal sealed partial class StorageServiceImpl
                         CreatedAt = DateTime.UtcNow,
                     }).ExecuteCommandAsync();
 
+    public async Task SaveJumpAsync(SteamID steamId, string jumpType, float distance, int strafes, float sync, float gain, float maxSpeed, float height)
+        => await _db.Insertable(new JumpEntity
+                    {
+                        Id        = Guid.NewGuid().ToString(),
+                        SteamId   = steamId,
+                        JumpType  = jumpType,
+                        Distance  = distance,
+                        Strafes   = strafes,
+                        Sync      = sync,
+                        Gain      = gain,
+                        MaxSpeed  = maxSpeed,
+                        Height    = height,
+                        CreatedAt = DateTime.UtcNow,
+                    }).ExecuteCommandAsync();
+
     public async Task<BanRecord?> GetActiveBanAsync(SteamID steamId)
     {
         var now = DateTime.UtcNow;

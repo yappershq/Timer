@@ -136,6 +136,9 @@ public interface IRequestManager
     /// <summary>Persist an anticheat infraction (a detector flag) for later review.</summary>
     Task SaveInfractionAsync(SteamID steamId, string type, string? details);
 
+    /// <summary>Persist a recorded jump (jumpstats).</summary>
+    Task SaveJumpAsync(SteamID steamId, string jumpType, float distance, int strafes, float sync, float gain, float maxSpeed, float height);
+
 #endregion
 
 #region Preferences

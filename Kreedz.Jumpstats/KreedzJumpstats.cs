@@ -41,6 +41,7 @@ public sealed class KreedzJumpstats : IModSharpModule
     private readonly ILogger<KreedzJumpstats> _logger;
 
     private IKzStyleRegistry? _styles;
+    private IRequestManager?  _request; // resolved cross-plugin for jump persistence
 
     private readonly bool[]     _wasOnGround = new bool[PlayerSlot.MaxPlayerCount];
     private readonly int[]      _groundTicks = new int[PlayerSlot.MaxPlayerCount];
@@ -83,8 +84,11 @@ public sealed class KreedzJumpstats : IModSharpModule
     }
 
     public void OnAllModulesLoaded()
-        => _styles = _shared.GetSharpModuleManager()
-                            .GetOptionalSharpModuleInterface<IKzStyleRegistry>(IKzStyleRegistry.Identity)?.Instance;
+    {
+        var mgr = _shared.GetSharpModuleManager();
+        _styles  = mgr.GetOptionalSharpModuleInterface<IKzStyleRegistry>(IKzStyleRegistry.Identity)?.Instance;
+        _request = mgr.GetOptionalSharpModuleInterface<IRequestManager>(IRequestManager.Identity)?.Instance;
+    }
 
     public void Shutdown() => _hookManager.PlayerProcessMovePre.RemoveForward(OnProcessMovePre);
 
@@ -199,10 +203,22 @@ public sealed class KreedzJumpstats : IModSharpModule
         var sync    = _airTicks[slot] > 0 ? 100f * _gainTicks[slot] / _airTicks[slot] : 0f;
         var gain    = _maxSpeed[slot] - _takeoffSpeed[slot];
 
-        if (_clientManager.GetGameClient(slot) is { IsFakeClient: false } client)
-            client.Print(HudPrintChannel.Chat,
-                $"{label}: {distance:0.0}u — {tier}!  |  {_strafes[slot]} strafes · {sync:0}% sync · " +
-                $"{_maxSpeed[slot]:0} max · {gain:+0;-0} gain · {_maxHeight[slot]:0.0}u height");
+        if (_clientManager.GetGameClient(slot) is not { IsFakeClient: false } client) return;
+
+        client.Print(HudPrintChannel.Chat,
+            $"{label}: {distance:0.0}u — {tier}!  |  {_strafes[slot]} strafes · {sync:0}% sync · " +
+            $"{_maxSpeed[slot]:0} max · {gain:+0;-0} gain · {_maxHeight[slot]:0.0}u height");
+
+        // Persist the jump (jumpstats DB) — fire-and-forget, degrades to no-op without the request manager.
+        if (_request is { } req)
+            _ = SaveJumpAsync(req, client.SteamId, label, distance, _strafes[slot], sync, gain, _maxSpeed[slot], _maxHeight[slot]);
+    }
+
+    private async System.Threading.Tasks.Task SaveJumpAsync(IRequestManager req, Sharp.Shared.Units.SteamID sid,
+        string type, float dist, int strafes, float sync, float gain, float maxSpeed, float height)
+    {
+        try { await req.SaveJumpAsync(sid, type, dist, strafes, sync, gain, maxSpeed, height); }
+        catch (Exception e) { _logger.LogError(e, "[KZ.Jumpstats] failed to persist jump for {Sid}", sid); }
     }
 
     private static float NormalizeYaw(float a)

@@ -56,7 +56,8 @@ internal sealed partial class StorageServiceImpl : IRequestManager
                                      typeof(ReplayEntity),
                                      typeof(ZoneEntity),
                                      typeof(BanEntity),
-                                     typeof(InfractionEntity));
+                                     typeof(InfractionEntity),
+                                     typeof(JumpEntity));
         }
         catch (Exception e)
         {

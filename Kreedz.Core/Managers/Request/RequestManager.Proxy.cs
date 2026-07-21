@@ -247,6 +247,9 @@ internal sealed class RequestManagerProxy : IManager, IRequestManager
     public Task SaveInfractionAsync(SteamID steamId, string type, string? details)
         => Current.SaveInfractionAsync(steamId, type, details);
 
+    public Task SaveJumpAsync(SteamID steamId, string jumpType, float distance, int strafes, float sync, float gain, float maxSpeed, float height)
+        => Current.SaveJumpAsync(steamId, jumpType, distance, strafes, sync, gain, maxSpeed, height);
+
     #endregion
 
     #region Preferences
