@@ -34,7 +34,7 @@ jobs:
                       Kreedz.Mode.VNL Kreedz.Mode.CKZ \
                       Kreedz.Style.ABH Kreedz.Style.LGJ Kreedz.Style.LowGrav Kreedz.Style.Ice \
                       Kreedz.Style.WSOnly Kreedz.Style.ADOnly \
-                      Kreedz.Anticheat Kreedz.Jumpstats Kreedz.Hud; do
+                      Kreedz.Anticheat Kreedz.Jumpstats Kreedz.Hud Kreedz.Global; do
             dotnet publish "$proj/$proj.csproj" \
               -c "${{ env.CONFIGURATION }}" -p:Platform=x64 -p:CIBuild=true \
               -o "sharp/modules/$proj" --no-restore

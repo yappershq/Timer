@@ -78,8 +78,7 @@ internal static class ModuleDI
         // KZ port: ban management — !ban/!unban admin commands + connect-time kick (cs2kz src/kz/ban).
         services.ImplSingleton<IBanModule, IModule, BanModule>();
 
-        // KZ port: global-API client — submits runs to the cs2kz global leaderboard (cs2kz src/kz/global).
-        // Dormant without kz_global_apikey; local ranking always runs.
-        services.ImplSingleton<IGlobalModule, IModule, GlobalModule>();
+        // KZ port: the global-API client now ships as the external Kreedz.Global plugin
+        // (reads IKzRunService.RunFinished + IKzModeRegistry; dormant without kz_global_apikey).
     }
 }

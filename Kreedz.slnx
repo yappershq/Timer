@@ -20,4 +20,5 @@
   <Project Path="Kreedz.Anticheat/Kreedz.Anticheat.csproj" />
   <Project Path="Kreedz.Jumpstats/Kreedz.Jumpstats.csproj" />
   <Project Path="Kreedz.Hud/Kreedz.Hud.csproj" />
+  <Project Path="Kreedz.Global/Kreedz.Global.csproj" />
 </Solution>

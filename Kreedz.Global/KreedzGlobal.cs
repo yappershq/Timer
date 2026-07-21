@@ -1,20 +1,17 @@
 /*
- * yappershq/Timer (KZ) — CS2KZ port
+ * yappershq/Kreedz (KZ) — Global-API plugin (1:1 cs2kz src/kz/global)
  *
- * KZ global-API client (1:1 cs2kz src/kz/global). Connects to the cs2kz global backend over a WebSocket,
- * does the hello/hello_ack handshake (plugin checksum + map + players), and submits finished runs as
- * NewRecord messages so they land on the global leaderboard — alongside the always-on local ranking.
+ * Standalone ModSharp module (split out of Core). Connects to the cs2kz global backend over a WebSocket,
+ * does the hello/hello_ack handshake (plugin checksum + map), and submits finished runs as NewRecord
+ * messages so they land on the global leaderboard — alongside the always-on local ranking. Reads run
+ * results via the public IKzRunService.RunFinished + IKzModeRegistry; needs no Core-internal services.
  *
  *   kz_global_apikey  ""                       — global API key. EMPTY = disabled (local ranking only).
  *   kz_global_url     "https://api.cs2kz.org"  — API base; https→wss, "/auth/cs2" appended, Bearer auth.
  *
- * Dormant by default: with no key the module logs "disabled" and never connects, so it ships safely and
- * the server runs on its own ranking until a key is set. The protocol shape (endpoint, Bearer auth,
- * hello handshake, NewRecord submission, reconnect lifecycle) mirrors the cs2kz source; the exact wire
- * envelope + the official checksum validation are theirs to gate, so a real issued key + a live
- * handshake against api.cs2kz.org are needed to certify official global submission (as flagged: a
- * clean-room plugin can't pass their plugin-checksum gate without KZGlobalteam). All socket I/O runs on
- * background tasks; the only game-thread touch is capturing run data on finish.
+ * Dormant without a key. The protocol shape mirrors cs2kz; the official checksum validation is theirs to
+ * gate, so a real issued key + a live handshake are needed to certify official submission. All socket I/O
+ * runs on background tasks; the only game-thread touch is capturing run data on the RunFinished event.
  */
 
 using System;
@@ -25,88 +22,91 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Sharp.Shared;
 using Sharp.Shared.Enums;
-using Sharp.Shared.GameEntities;
+using Sharp.Shared.Listeners;
+using Sharp.Shared.Managers;
 using Sharp.Shared.Objects;
+using Sharp.Shared.Units;
 using Kreedz.Shared.Interfaces;
-using Kreedz.Shared.Interfaces.Listeners;
 using Kreedz.Shared.Models.Timer;
 
-namespace Kreedz.Modules;
+namespace Kreedz.Global;
 
 internal enum GlobalState { Uninitialized, Disabled, Connecting, Connected, HandshakeSent, Ready, Reconnecting, Disconnected }
 
-internal interface IGlobalModule
-{
-    bool        IsEnabled { get; }
-    GlobalState State     { get; }
-}
-
-internal sealed class GlobalModule : IModule, IGlobalModule, ITimerModuleListener
+public sealed class KreedzGlobal : IModSharpModule, IClientListener
 {
     private const string HelloType     = "hello";
     private const string HelloAckType  = "hello_ack";
     private const string NewRecordType = "NewRecord";
 
-    private readonly InterfaceBridge     _bridge;
-    private readonly ITimerModule        _timerModule;
-    private readonly ICheckpointModule   _checkpoint;
-    private readonly IKzStyleModule      _style;
-    private readonly IModeModule         _mode;
-    private readonly ICommandManager     _commandManager;
-    private readonly ILogger<GlobalModule> _logger;
+    private readonly ISharedSystem       _shared;
+    private readonly IModSharp           _modSharp;
+    private readonly IClientManager      _clientManager;
+    private readonly ILogger<KreedzGlobal> _logger;
+    private readonly Version             _version;
+    private readonly string              _dllPath;
 
-    private IConVar? _apiKeyCvar;
-    private IConVar? _urlCvar;
+    private readonly IConVar? _apiKeyCvar;
+    private readonly IConVar? _urlCvar;
 
-    private ClientWebSocket?       _socket;
+    private IKzRunService?   _run;
+    private IKzModeRegistry? _modes;
+
+    private ClientWebSocket?         _socket;
     private CancellationTokenSource? _cts;
-    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly SemaphoreSlim   _sendLock = new(1, 1);
     private int    _messageId;
     private string _checksum = "";
 
     private volatile GlobalState _state = GlobalState.Uninitialized;
 
-    public GlobalModule(InterfaceBridge  bridge,
-                        ITimerModule      timerModule,
-                        ICheckpointModule checkpoint,
-                        IKzStyleModule    style,
-                        IModeModule       mode,
-                        ICommandManager   commandManager,
-                        ILogger<GlobalModule> logger)
+    public string DisplayName   => "[Kreedz] Global";
+    public string DisplayAuthor => "yappershq";
+
+    public KreedzGlobal(ISharedSystem shared, string? dllPath, string? sharpPath, Version? version, IConfiguration? coreConfiguration, bool hotReload)
     {
-        _bridge         = bridge;
-        _timerModule    = timerModule;
-        _checkpoint     = checkpoint;
-        _style          = style;
-        _mode           = mode;
-        _commandManager = commandManager;
-        _logger         = logger;
+        _shared        = shared;
+        _modSharp      = shared.GetModSharp();
+        _clientManager = shared.GetClientManager();
+        _logger        = shared.GetLoggerFactory().CreateLogger<KreedzGlobal>();
+        _version       = version ?? new Version(0, 0);
+        _dllPath       = dllPath ?? "";
+
+        var cvar = shared.GetConVarManager();
+        _apiKeyCvar = cvar.CreateConVar("kz_global_apikey", "", "cs2kz global API key. Empty = global disabled (local ranking only).");
+        _urlCvar    = cvar.CreateConVar("kz_global_url", "https://api.cs2kz.org", "cs2kz global API base URL.");
     }
 
-    public bool IsEnabled => _state is not (GlobalState.Uninitialized or GlobalState.Disabled);
-    public GlobalState State => _state;
+    public int ListenerVersion  => IClientListener.ApiVersion;
+    public int ListenerPriority => 10;
 
     public bool Init()
     {
-        _apiKeyCvar = _bridge.ConVarManager.CreateConVar("kz_global_apikey", "",
-            "cs2kz global API key. Empty = global disabled (local ranking only).");
-        _urlCvar = _bridge.ConVarManager.CreateConVar("kz_global_url", "https://api.cs2kz.org",
-            "cs2kz global API base URL.");
-
-        _timerModule.RegisterListener(this);
-        _commandManager.AddClientChatCommand("global", OnCommandGlobal);
+        _clientManager.InstallClientListener(this);
         return true;
     }
 
-    public void OnPostInit(ServiceProvider provider) => Start();
+    public void OnAllModulesLoaded()
+    {
+        var mgr = _shared.GetSharpModuleManager();
+        _run   = mgr.GetOptionalSharpModuleInterface<IKzRunService>(IKzRunService.Identity)?.Instance;
+        _modes = mgr.GetOptionalSharpModuleInterface<IKzModeRegistry>(IKzModeRegistry.Identity)?.Instance;
+
+        if (_run is not null)
+            _run.RunFinished += OnRunFinished;
+
+        Start();
+    }
 
     public void Shutdown()
     {
-        _timerModule.UnregisterListener(this);
-        // ICommandManager has no per-command removal; client chat commands die with the plugin.
+        if (_run is not null)
+            _run.RunFinished -= OnRunFinished;
+        _clientManager.RemoveClientListener(this);
 
         _cts?.Cancel();
         try { _socket?.Abort(); } catch { /* already dead */ }
@@ -128,6 +128,17 @@ internal sealed class GlobalModule : IModule, IGlobalModule, ITimerModuleListene
         _ = ConnectLoopAsync(_cts.Token);
     }
 
+    // Chat status command (!global) — matched off the say-command listener since this plugin has no
+    // Core command manager; mirrors how Core's CommandManager dispatches chat triggers.
+    public ECommandAction OnClientSayCommand(IGameClient client, bool teamOnly, bool isCommand, string commandName, string message)
+    {
+        if (string.IsNullOrEmpty(message) || !"!/.".Contains(message[0])) return ECommandAction.Skipped;
+        if (!message[1..].Trim().Equals("global", StringComparison.OrdinalIgnoreCase)) return ECommandAction.Skipped;
+
+        client.Print(HudPrintChannel.Chat, $"[KZ] Global ranking: {_state}.");
+        return ECommandAction.Handled;
+    }
+
     private async Task ConnectLoopAsync(CancellationToken ct)
     {
         var backoff = 5.0;
@@ -137,14 +148,8 @@ internal sealed class GlobalModule : IModule, IGlobalModule, ITimerModuleListene
             {
                 await ConnectOnceAsync(ct);
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception e)
-            {
-                _logger.LogWarning(e, "[KZ.Global] connection error");
-            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception e) { _logger.LogWarning(e, "[KZ.Global] connection error"); }
 
             if (ct.IsCancellationRequested) break;
 
@@ -179,9 +184,9 @@ internal sealed class GlobalModule : IModule, IGlobalModule, ITimerModuleListene
     {
         type           = HelloType,
         id             = NextId(),
-        plugin_version = _bridge.Version.ToString(),
+        plugin_version = _version.ToString(),
         checksum       = _checksum,
-        map            = _bridge.ModSharp.GetGlobals().MapName,
+        map            = _modSharp.GetGlobals().MapName,
     }, ct);
 
     private async Task ReceiveLoopAsync(ClientWebSocket socket, CancellationToken ct)
@@ -229,23 +234,18 @@ internal sealed class GlobalModule : IModule, IGlobalModule, ITimerModuleListene
         }
     }
 
-    void ITimerModuleListener.OnPlayerTimerStart(IPlayerController controller, IPlayerPawn pawn, ITimerInfo timerInfo) { }
-
-    void ITimerModuleListener.OnPlayerFinishMap(IPlayerController controller, IPlayerPawn pawn, ITimerInfo timerInfo)
+    // Public run-finished event (game thread). Styled runs are never globally ranked.
+    private void OnRunFinished(PlayerSlot slot, ITimerInfo info, int teleports, bool styled)
     {
-        if (_state != GlobalState.Ready) return;
-        if (controller.GetGameClient() is not { IsFakeClient: false } client) return;
+        if (_state != GlobalState.Ready || styled) return;
+        if (_clientManager.GetGameClient(slot) is not { IsFakeClient: false } client) return;
 
-        // Styled runs are never globally ranked; skip before touching the wire.
-        if (_style.HasAnyStyle(client.Slot)) return;
-
-        // Capture everything as values on the game thread — nothing game-owned crosses to the send task.
-        var steamId   = client.SteamId.AsPrimitive();
-        var name      = client.Name;
-        var map       = _bridge.ModSharp.GetGlobals().MapName;
-        var time      = timerInfo.Time;
-        var teleports = _checkpoint.GetTeleportCount(client.Slot);
-        var mode      = _mode.GetMode(client.Slot);
+        // Capture as values on the game thread — nothing game-owned crosses to the send task.
+        var steamId = client.SteamId.AsPrimitive();
+        var name    = client.Name;
+        var map     = _modSharp.GetGlobals().MapName;
+        var time    = info.Time;
+        var mode    = _modes?.GetPlayerMode(slot) ?? "vnl";
 
         _ = SubmitRunAsync(steamId, name, map, time, teleports, mode);
     }
@@ -290,13 +290,6 @@ internal sealed class GlobalModule : IModule, IGlobalModule, ITimerModuleListene
         }
     }
 
-    private ECommandAction OnCommandGlobal(Sharp.Shared.Units.PlayerSlot slot, Sharp.Shared.Types.StringCommand command)
-    {
-        if (_bridge.ClientManager.GetGameClient(slot) is { IsFakeClient: false } client)
-            client.Print(HudPrintChannel.Chat, $"[KZ] Global ranking: {_state}.");
-        return ECommandAction.Handled;
-    }
-
     private int NextId() => Interlocked.Increment(ref _messageId);
 
     private static string ToWebSocketUrl(string baseUrl)
@@ -314,12 +307,12 @@ internal sealed class GlobalModule : IModule, IGlobalModule, ITimerModuleListene
         try
         {
             using var md5    = MD5.Create();
-            using var stream = File.OpenRead(_bridge.DllPath);
+            using var stream = File.OpenRead(_dllPath);
             return Convert.ToHexString(md5.ComputeHash(stream));
         }
         catch
         {
-            return _bridge.Version.ToString();
+            return _version.ToString();
         }
     }
 }
