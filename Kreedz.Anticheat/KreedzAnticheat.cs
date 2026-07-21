@@ -42,7 +42,8 @@ public sealed class KreedzAnticheat : IModSharpModule
     private readonly IClientManager          _clientManager;
     private readonly ILogger<KreedzAnticheat> _logger;
 
-    private IRequestManager? _request; // resolved cross-plugin for infraction persistence
+    private IRequestManager?  _request; // resolved cross-plugin for infraction persistence
+    private IKzStyleRegistry? _styles;  // resolved cross-plugin to skip AC on styled movement
     private readonly IConVar                 _autokick;
     private readonly IConVar                 _autoban;
     private readonly IConVar                 _banThreshold;
@@ -165,8 +166,11 @@ public sealed class KreedzAnticheat : IModSharpModule
     }
 
     public void OnAllModulesLoaded()
-        => _request = _shared.GetSharpModuleManager()
-                            .GetOptionalSharpModuleInterface<IRequestManager>(IRequestManager.Identity)?.Instance;
+    {
+        var mgr  = _shared.GetSharpModuleManager();
+        _request = mgr.GetOptionalSharpModuleInterface<IRequestManager>(IRequestManager.Identity)?.Instance;
+        _styles  = mgr.GetOptionalSharpModuleInterface<IKzStyleRegistry>(IKzStyleRegistry.Identity)?.Instance;
+    }
 
     // Nulls detector — inspect per-tick strafe buttons for inhumanly-clean counter-strafes.
     private void OnRunCommandPost(IPlayerRunCommandHookParams param, HookReturnValue<EmptyHookReturn> ret)
@@ -259,6 +263,9 @@ public sealed class KreedzAnticheat : IModSharpModule
     // cs2kz jumps.cpp autostrafe detector — per-jump strafes/sec over a rolling window of jumps.
     private void DetectAutostrafe(IGameClient client, PlayerSlot slot, Sharp.Shared.GameEntities.IPlayerPawn pawn, bool onGround)
     {
+        // cs2kz skips autostrafe detection for styled movement (e.g. ABH) — a style legitimately alters strafing.
+        if (_styles?.HasAnyStyle(slot) == true) return;
+
         var vel   = pawn.GetAbsVelocity();
         var horiz = MathF.Sqrt(vel.X * vel.X + vel.Y * vel.Y);
         var yaw   = pawn.GetEyeAngles().Y;
