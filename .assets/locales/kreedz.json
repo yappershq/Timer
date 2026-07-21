@@ -23,5 +23,15 @@
   "Kreedz_Style_Unknown":  { "en-US": " {{green}}[KZ]{{default}} {{red}}Unknown style '{0}'." },
   "Kreedz_Style_Enabled":  { "en-US": " {{green}}[KZ]{{default}} Style {{lime}}{0}{{default}} enabled." },
   "Kreedz_Style_Disabled": { "en-US": " {{green}}[KZ]{{default}} Style {{lime}}{0}{{default}} disabled." },
-  "Kreedz_Style_Cleared":  { "en-US": " {{green}}[KZ]{{default}} Styles cleared." }
+  "Kreedz_Style_Cleared":  { "en-US": " {{green}}[KZ]{{default}} Styles cleared." },
+
+  "Kreedz_Cp_GroundOnly":  { "en-US": " {{green}}[KZ]{{default}} {{red}}You can only set a checkpoint on the ground or a ladder." },
+  "Kreedz_Cp_Set":         { "en-US": " {{green}}[KZ]{{default}} Checkpoint {{lime}}{0}{{default}} set." },
+  "Kreedz_Cp_NoneYet":     { "en-US": " {{green}}[KZ]{{default}} {{red}}No checkpoint set — use {{lime}}!cp{{red}} first." },
+  "Kreedz_Cp_NothingUndo": { "en-US": " {{green}}[KZ]{{default}} {{red}}Nothing to undo." },
+  "Kreedz_Cp_Removed":     { "en-US": " {{green}}[KZ]{{default}} Removed last checkpoint ({{lime}}{0}{{default}} left)." },
+  "Kreedz_Cp_None":        { "en-US": " {{green}}[KZ]{{default}} {{red}}No checkpoints set." },
+  "Kreedz_Cp_Index":       { "en-US": " {{green}}[KZ]{{default}} Checkpoint {{lime}}{0}/{1}{{default}}." },
+  "Kreedz_Cp_StartSet":    { "en-US": " {{green}}[KZ]{{default}} Custom start position set." },
+  "Kreedz_Cp_StartClear":  { "en-US": " {{green}}[KZ]{{default}} Custom start position cleared." }
 }

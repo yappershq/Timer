@@ -103,14 +103,14 @@ internal sealed class CheckpointModule : IModule, ICheckpointModule
         var onLadder = pawn.MoveType == MoveType.Ladder;
         if (!pawn.Flags.HasFlag(EntityFlags.OnGround) && !onLadder)
         {
-            Tell(slot, "You can only set a checkpoint on the ground or a ladder.");
+            Msg(slot, "Kreedz_Cp_GroundOnly");
             return;
         }
 
         var cps = _checkpoints[slot];
         cps.Add(new Checkpoint(pawn.GetAbsOrigin(), pawn.GetEyeAngles(), onLadder));
         _cpIndex[slot] = cps.Count - 1;
-        Tell(slot, $"Checkpoint {cps.Count} set.");
+        Msg(slot, "Kreedz_Cp_Set", cps.Count);
     }
 
     private void TeleportToCurrent(PlayerSlot slot)
@@ -119,7 +119,7 @@ internal sealed class CheckpointModule : IModule, ICheckpointModule
         if (cps.Count == 0)
         {
             if (_startPos[slot] is { } sp) TeleportTo(slot, sp);
-            else Tell(slot, "No checkpoint set — use !cp first.");
+            else Msg(slot, "Kreedz_Cp_NoneYet");
             return;
         }
 
@@ -129,35 +129,35 @@ internal sealed class CheckpointModule : IModule, ICheckpointModule
     private void Undo(PlayerSlot slot)
     {
         var cps = _checkpoints[slot];
-        if (cps.Count == 0) { Tell(slot, "Nothing to undo."); return; }
+        if (cps.Count == 0) { Msg(slot, "Kreedz_Cp_NothingUndo"); return; }
 
         cps.RemoveAt(cps.Count - 1);
         _cpIndex[slot] = cps.Count == 0 ? 0 : cps.Count - 1;
         if (cps.Count > 0) TeleportTo(slot, cps[_cpIndex[slot]]);
-        Tell(slot, $"Removed last checkpoint ({cps.Count} left).");
+        Msg(slot, "Kreedz_Cp_Removed", cps.Count);
     }
 
     private void CycleCheckpoint(PlayerSlot slot, int dir)
     {
         var cps = _checkpoints[slot];
-        if (cps.Count == 0) { Tell(slot, "No checkpoints set."); return; }
+        if (cps.Count == 0) { Msg(slot, "Kreedz_Cp_None"); return; }
 
         _cpIndex[slot] = Math.Clamp(_cpIndex[slot] + dir, 0, cps.Count - 1);
         TeleportTo(slot, cps[_cpIndex[slot]]);
-        Tell(slot, $"Checkpoint {_cpIndex[slot] + 1}/{cps.Count}.");
+        Msg(slot, "Kreedz_Cp_Index", _cpIndex[slot] + 1, cps.Count);
     }
 
     private void SetStartPos(PlayerSlot slot)
     {
         if (GetAlivePawn(slot) is not { } pawn) return;
         _startPos[slot] = new Checkpoint(pawn.GetAbsOrigin(), pawn.GetEyeAngles(), pawn.MoveType == MoveType.Ladder);
-        Tell(slot, "Custom start position set.");
+        Msg(slot, "Kreedz_Cp_StartSet");
     }
 
     private void ClearStartPos(PlayerSlot slot)
     {
         _startPos[slot] = null;
-        Tell(slot, "Custom start position cleared.");
+        Msg(slot, "Kreedz_Cp_StartClear");
     }
 
     private void TeleportTo(PlayerSlot slot, Checkpoint cp)
@@ -176,10 +176,10 @@ internal sealed class CheckpointModule : IModule, ICheckpointModule
             ? pawn
             : null;
 
-    private void Tell(PlayerSlot slot, string message)
+    private void Msg(PlayerSlot slot, string key, params object?[] args)
     {
         if (_bridge.ClientManager.GetGameClient(slot) is { IsFakeClient: false } client)
-            client.Print(HudPrintChannel.Chat, message);
+            Loc.Chat(_bridge.LocalizerManager, client, key, args);
     }
 }
 
