@@ -70,7 +70,6 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
     private readonly float[] _bonusSpeed    = new float[PlayerSlot.MaxPlayerCount];
     private readonly float[] _leftPreRatio  = new float[PlayerSlot.MaxPlayerCount];
     private readonly float[] _rightPreRatio = new float[PlayerSlot.MaxPlayerCount];
-    private readonly float[] _lastYaw       = new float[PlayerSlot.MaxPlayerCount];
 
     private readonly bool[]   _wasGround       = new bool[PlayerSlot.MaxPlayerCount];
     private readonly float[]  _landingTime     = new float[PlayerSlot.MaxPlayerCount];
@@ -166,10 +165,10 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
         var velocity = arg.Pawn.GetAbsVelocity();
         var onGround = arg.Pawn.GroundEntityHandle.IsValid();
 
-        var yaw  = arg.Pawn.GetEyeAngles().Y;
-        var rate = frametime > 0f ? NormalizeYaw(yaw - _lastYaw[slot]) / frametime : 0f;
-        _lastYaw[slot] = yaw;
-        PushAngle(slot, rate, frametime);
+        // cs2kz UpdateAngleHistory: the prestrafe "turn rate" is the angle between wishdir (the strafe-key
+        // input direction) and velocity — accumulated on-ground only. NOT raw mouse-yaw delta (the old bug).
+        if (onGround)
+            PushAngle(slot, ComputeTurnRate(arg), frametime);
 
         if (onGround && !_wasGround[slot])
         {
@@ -529,11 +528,35 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
 
     private static float Length2D(Vector v) => MathF.Sqrt(v.X * v.X + v.Y * v.Y);
 
-    private static float NormalizeYaw(float a)
+    // cs2kz KZClassicModeService::UpdateAngleHistory rate: the signed angle between the player's wishdir
+    // (forward*fmove + right*smove from the strafe keys) and their velocity — the strafe-alignment metric
+    // that drives prestrafe, not raw mouse-yaw delta. Roll is 0 in CS2 movement, so the flattened forward/
+    // right reduce to (cos yaw, sin yaw) / (sin yaw, -cos yaw). Reads MoveData exactly like cs2kz reads mv->.
+    private static float ComputeTurnRate(IPlayerProcessMoveForwardParams arg)
     {
-        while (a >  180f) a -= 360f;
-        while (a < -180f) a += 360f;
-        return a;
+        var mv = arg.Info;
+        float vx = mv->Velocity.X, vy = mv->Velocity.Y;
+        if (vx == 0f && vy == 0f) return 0f; // not turning if velocity is null (cs2kz)
+
+        var   yawRad = mv->ViewAngles.Y * (MathF.PI / 180f);
+        float cy = MathF.Cos(yawRad), sy = MathF.Sin(yawRad);
+        float fmove = mv->ForwardMove, smove = -mv->SideMove; // cs2kz negates side move
+        float wx = cy * fmove + sy * smove;
+        float wy = sy * fmove - cy * smove;
+        if (wx == 0f && wy == 0f) return 0f; // no wishdir → not turning
+
+        var accelYaw = MathF.Atan2(wy, wx) * (180f / MathF.PI);
+        var velYaw   = MathF.Atan2(vy, vx) * (180f / MathF.PI);
+        return AngleDiff(accelYaw - velYaw); // cs2kz GetAngleDifference(velYaw, accelYaw, 180, relative=true)
+    }
+
+    // cs2kz GetAngleDifference(source, target, 180, relative=true): (target-source) wrapped to [-180, 180].
+    private static float AngleDiff(float d)
+    {
+        d %= 360f;
+        if (d > 180f) d -= 360f;
+        else if (d < -180f) d += 360f;
+        return d;
     }
 
     // cs2kz kz_mode_ckz.h modeCvarValues — the full 33-cvar mode layer, verbatim.
