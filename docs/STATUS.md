@@ -19,7 +19,7 @@ subsystems and several are partial or not started (see below). See `KZ_PORT_PLAN
 | HUD | 🟡 | External `Kreedz.Hud` plugin (reads `IKzRunService`+`IKzModeRegistry`). Run timer + paused + CP/TP + speed/keys/mode. Missing PB delta (needs cached PB), spectator/replay HUD. |
 | DB | 🟡 | Runs/BestRuns/TrackScores/Bans/Prefs. Missing: jumpstats table, startpos, course names. |
 | Ranks | ✅ | Points + rank, ban-excluded leaderboards, `wr/pb/rank/top/recent/...`. |
-| Global API | 🟡 | Submit-only client (hello + NewRecord). Missing: PB/top/WR queries, replay up/download, auth/Prime, ban enforcement. |
+| Global API | 🟡 | External `Kreedz.Global` plugin (submit-only: hello + NewRecord via `IKzRunService.RunFinished`). Missing: PB/top/WR queries, replay up/download, auth/Prime, ban enforcement. Live-gated (needs a real key). |
 | Anticheat | 🟡 | External `Kreedz.Anticheat` plugin. 2 of cs2kz's 6 detectors (invalid-cvar + bhop-chain). No telemetry detectors, no infractions DB. |
 | Ban management | ✅ | `!ban`/`!unban` (@kz/ban) + connect-time kick, persisted. |
 | Preferences | ✅ | Mode/FOV/styles persist across reconnect (subset of cs2kz option keys). |
