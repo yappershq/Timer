@@ -59,6 +59,21 @@ public sealed class KreedzAnticheat : IModSharpModule
     private const int   SnaptapChain   = 128;        // cs2kz NUM_CONSECUTIVE_PERFECT_CSTRAFE minimum
     private readonly int[] _snapChain   = new int[PlayerSlot.MaxPlayerCount];
 
+    // Strafe-optimizer detector (cs2kz strafe_optimizer.cpp): a scripted optimizer snaps the yaw at the
+    // exact optimal strafe-reversal, producing a yaw-accel spike a human mouse can't. Rolling average of
+    // spike occurrences; flag past 0.9. Needs 6 angle frames to compute accel at the 3 sample points.
+    private readonly float[][] _yawBuf  = NewJagged(6);
+    private readonly float[][] _ftBuf   = NewJagged(6);
+    private readonly int[]     _yawLen  = new int[PlayerSlot.MaxPlayerCount];
+    private readonly float[]   _soPct   = new float[PlayerSlot.MaxPlayerCount];
+
+    private static float[][] NewJagged(int depth)
+    {
+        var a = new float[PlayerSlot.MaxPlayerCount][];
+        for (var i = 0; i < a.Length; i++) a[i] = new float[depth];
+        return a;
+    }
+
     public string DisplayName   => "[Kreedz] Anticheat";
     public string DisplayAuthor => "yappershq";
 
@@ -153,6 +168,52 @@ public sealed class KreedzAnticheat : IModSharpModule
         _wasGround[slot] = onGround;
 
         DetectSnaptap(client, slot, arg);
+        DetectStrafeOptimizer(client, slot, arg.Pawn.GetEyeAngles().Y, _modSharp.GetGlobals().FrameTime);
+    }
+
+    // cs2kz KZAnticheatService::DetectOptimization — flags a scripted strafe optimizer by its yaw-accel
+    // spike at strafe reversals (a human mouse can't produce it). Buffer of the last 6 (yaw, frametime);
+    // yaw speed = Δyaw/ft, yaw accel = Δspeed/ft; a low-avg-accel window with a lone spike at a direction
+    // switch bumps a rolling average toward 1; > 0.9 = detected.
+    private void DetectStrafeOptimizer(IGameClient client, PlayerSlot slot, float yaw, float ft)
+    {
+        if (ft <= 0f) return;
+        var yb = _yawBuf[slot]; var fb = _ftBuf[slot];
+        for (var i = 0; i < 5; i++) { yb[i] = yb[i + 1]; fb[i] = fb[i + 1]; } // shift, newest at [5]
+        yb[5] = yaw; fb[5] = ft;
+        if (_yawLen[slot] < 6) { _yawLen[slot]++; return; }
+
+        float Speed(int i) => fb[i] > 0f ? NormalizeYaw(yb[i] - yb[i - 1]) / fb[i] : 0f;
+        float Accel(int i) => fb[i] > 0f ? (Speed(i) - Speed(i - 1)) / fb[i] : 0f;
+
+        var curSpeed = Speed(5); var lastSpeed = Speed(4);
+        var switched = (curSpeed < 0f) != (lastSpeed < 0f);
+
+        var accel2ago = MathF.Abs(Accel(3));
+        var lastAccel = MathF.Abs(Accel(4));
+        var curAccel  = MathF.Abs(Accel(5));
+
+        if (MathF.Abs(curAccel - accel2ago) < 1.0f)
+        {
+            var avg = (curAccel + accel2ago) * 0.5f;
+            if (avg < 2.0f && (lastAccel - avg) > 2.0f && switched)
+                _soPct[slot] = _soPct[slot] * 0.95f + 0.05f;        // spike at a reversal
+            else if (switched)
+                _soPct[slot] = _soPct[slot] * 0.95f;                // clean reversal
+        }
+
+        if (_soPct[slot] > 0.9f)
+        {
+            Flag(client, "strafe-optimizer (scripted yaw-accel pattern)");
+            _soPct[slot] = 0f;
+        }
+    }
+
+    private static float NormalizeYaw(float a)
+    {
+        while (a >  180f) a -= 360f;
+        while (a < -180f) a += 360f;
+        return a;
     }
 
     // Subtick snaptap/nulls detector (cs2kz src/kz/anticheat/detectors/nulls). A snaptap/SOCD device
