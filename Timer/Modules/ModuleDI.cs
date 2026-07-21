@@ -38,5 +38,8 @@ internal static class ModuleDI
         services.ImplSingleton<IMessageModule, IModule, MessageModule>();
 
         services.ImplSingleton<IMiscModule, IModule, MiscModule>();
+
+        // KZ port: cp/tp save-loc practice system (net-new; cs2kz src/kz/checkpoint).
+        services.ImplSingleton<ICheckpointModule, IModule, CheckpointModule>();
     }
 }
