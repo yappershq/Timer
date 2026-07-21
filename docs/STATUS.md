@@ -10,7 +10,7 @@ subsystems and several are partial or not started (see below). See `KZ_PORT_PLAN
 
 | System | State | Notes |
 |---|---|---|
-| Timer | 🟡 | PRO/STANDARD run semantics done. Missing: named courses (mapping-API), split zones, strict start-validation gate, global submission/announce flow. |
+| Timer | 🟡 | PRO/STANDARD + start-validation gate (alive + Walk movetype). Missing: named courses (mapping-API), split zones, debounce guards, global submission/announce flow. |
 | Checkpoints / teleports | ✅ | `cp/tp/undo/prevcp/nextcp/setstartpos/clearstartpos`. Startpos not DB-persisted. |
 | Modes | 🟡 | External `Kreedz.Mode.VNL`/`.CKZ` via `IKzModeRegistry`. **Full 33/33 convar layer** now; registry still has no movement-callback API (3rd-party modes can't add custom physics hooks yet). |
 | Styles | ✅ | 6 external plugins (`ABH,LGJ,LowGrav,Ice,WSOnly,ADOnly`) ≥ cs2kz's shipped set. |
