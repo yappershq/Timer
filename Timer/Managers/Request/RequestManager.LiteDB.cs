@@ -157,6 +157,16 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
         return Task.FromResult<BanRecord?>(ban);
     }
 
+    /// <summary>SteamIDs with an active (unexpired) ban — excluded from the public leaderboard reads.</summary>
+    private HashSet<ulong> ActiveBanSet()
+    {
+        var now = DateTime.UtcNow;
+        return Database.GetCollection<BanRecord>(BanTableName)
+                       .Find(b => b.ExpiresAt > now)
+                       .Select(b => b.SteamId)
+                       .ToHashSet();
+    }
+
     public Task<MapProfile> GetMapInfo(string map)
     {
         var mapNameKey = map.ToLowerInvariant();
@@ -239,12 +249,14 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
         }
 
         var normalizedLimit  = NormalizeLimit(limit);
+        var banned           = ActiveBanSet();
 
         var col = Database.GetCollection<RunRecord>(PlayerRecordTableName);
 
         var bestRuns = col.Query()
                           .Where(i => i.MapId == mapId.Value && i.Stage == 0)
                           .ToEnumerable()
+                          .Where(run => !banned.Contains(run.SteamId))
                           .GroupBy(run => new
                           {
                               run.SteamId,
@@ -272,12 +284,14 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
         }
 
         var normalizedLimit  = NormalizeLimit(limit);
+        var banned           = ActiveBanSet();
 
         var col = Database.GetCollection<RunRecord>(PlayerStageRecordTableName);
 
         var bestRuns = col.Query()
                           .Where(i => i.MapId == mapId.Value && i.Stage > 0)
                           .ToEnumerable()
+                          .Where(run => !banned.Contains(run.SteamId))
                           .GroupBy(run => new
                           {
                               run.SteamId,
@@ -310,12 +324,14 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
         }
 
         var normalizedLimit  = NormalizeLimit(limit);
+        var banned           = ActiveBanSet();
 
         var col = Database.GetCollection<RunRecord>(PlayerRecordTableName);
 
         var bestRuns = col.Query()
                           .Where(i => i.MapId == mapId.Value && i.Style == style && i.Track == track && i.Stage == 0)
                           .ToEnumerable()
+                          .Where(run => !banned.Contains(run.SteamId))
                           .GroupBy(run => run.SteamId)
                           .Select(group => group.OrderBy(run => run.Time)
                                                 .ThenBy(run => run.Id)
@@ -342,6 +358,7 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
         }
 
         var normalizedLimit  = NormalizeLimit(limit);
+        var banned           = ActiveBanSet();
 
         var col = Database.GetCollection<RunRecord>(PlayerStageRecordTableName);
 
@@ -351,6 +368,7 @@ internal class RequestManagerLiteDB : IManager, IRequestManager, IDisposable
                                       && i.Style == style
                                       && i.Track == track)
                           .ToEnumerable()
+                          .Where(run => !banned.Contains(run.SteamId))
                           .GroupBy(run => run.SteamId)
                           .Select(group => group.OrderBy(run => run.Time)
                                                 .ThenBy(run => run.Id)

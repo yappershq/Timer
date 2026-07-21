@@ -136,24 +136,6 @@ internal sealed partial class StorageServiceImpl
         return profile;
     }
 
-    private ISugarQueryable<RunEntity> QueryMainRuns()
-    {
-        var now = DateTime.UtcNow;
-        return _db.Queryable<RunEntity>()
-                  .Where(run => run.RunType == RunType.Main)
-                  .Where(run => SqlFunc.Subqueryable<BanEntity>()
-                                       .Where(b => b.SteamId == run.SteamId && b.ExpiresAt > now).NotAny());
-    }
-
-    private ISugarQueryable<RunEntity> QueryStageRuns()
-    {
-        var now = DateTime.UtcNow;
-        return _db.Queryable<RunEntity>()
-                  .Where(run => run.RunType == RunType.Stage)
-                  .Where(run => SqlFunc.Subqueryable<BanEntity>()
-                                       .Where(b => b.SteamId == run.SteamId && b.ExpiresAt > now).NotAny());
-    }
-
     public async Task<(int rank, int total)> GetPlayerPointsRank(SteamID steamId)
     {
         var player = await _db.Queryable<PlayerEntity>()

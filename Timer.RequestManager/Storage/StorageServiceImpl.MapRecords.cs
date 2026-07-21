@@ -91,9 +91,16 @@ internal sealed partial class StorageServiceImpl
 
         var normalizedLimit = NormalizeLimit(limit);
 
+        var now = DateTime.UtcNow;
+
         var query = QueryBestRuns().InnerJoin<RunEntity>((best, run) => best.RunId == run.Id)
                                   .Where((best, run) => best.MapId == mapId.Value
-                                                        && best.RunType == runType);
+                                                        && best.RunType == runType)
+                                  // Exclude players with an active ban from the public leaderboard
+                                  // (their own per-player record lookups are unaffected).
+                                  .Where((best, run) => SqlFunc.Subqueryable<BanEntity>()
+                                                               .Where(b => b.SteamId == best.SteamId && b.ExpiresAt > now)
+                                                               .NotAny());
 
         if (style.HasValue)
         {
