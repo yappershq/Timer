@@ -26,47 +26,66 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore
-        run: dotnet restore SurfTimer.slnx
+        run: dotnet restore Kreedz.slnx
 
-      - name: Publish Timer
+      - name: Publish Kreedz.Core
         run: >
-          dotnet publish Timer/Timer.csproj
+          dotnet publish Kreedz.Core/Kreedz.Core.csproj
           -c ${{ env.CONFIGURATION }}
           -p:Platform=x64
           -p:CIBuild=true
-          -o sharp/modules/Timer
+          -o sharp/modules/Kreedz.Core
           --no-restore
 
-      - name: Publish Timer.RequestManager
+      - name: Publish Kreedz.RequestManager
         run: >
-          dotnet publish Timer.RequestManager/Timer.RequestManager.csproj
+          dotnet publish Kreedz.RequestManager/Kreedz.RequestManager.csproj
           -c ${{ env.CONFIGURATION }}
           -p:Platform=x64
-          -o sharp/modules/Timer.RequestManager
+          -o sharp/modules/Kreedz.RequestManager
           --no-restore
 
-      - name: Publish Timer.Shared
+      - name: Publish Kreedz.Mode.VNL
         run: >
-          dotnet publish Timer.Shared/Timer.Shared.csproj
+          dotnet publish Kreedz.Mode.VNL/Kreedz.Mode.VNL.csproj
           -c ${{ env.CONFIGURATION }}
           -p:Platform=x64
-          -o sharp/shared/Timer.Shared
+          -o sharp/modules/Kreedz.Mode.VNL
           --no-restore
+
+      - name: Publish Kreedz.Mode.CKZ
+        run: >
+          dotnet publish Kreedz.Mode.CKZ/Kreedz.Mode.CKZ.csproj
+          -c ${{ env.CONFIGURATION }}
+          -p:Platform=x64
+          -o sharp/modules/Kreedz.Mode.CKZ
+          --no-restore
+
+      - name: Publish Kreedz.Shared
+        run: >
+          dotnet publish Kreedz.Shared/Kreedz.Shared.csproj
+          -c ${{ env.CONFIGURATION }}
+          -p:Platform=x64
+          -o sharp/shared/Kreedz.Shared
+          --no-restore
+
+      - name: Stage assets
+        run: cp -r .assets/* sharp/ 2>/dev/null || true
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SurfTimer
+          name: Kreedz
           path: sharp/
 
       - name: Package release archive
         if: github.event_name == 'release'
         run: |
           cd sharp
-          zip -r ../SurfTimer-${{ github.event.release.tag_name }}.zip .
+          zip -r ../Kreedz-${{ github.event.release.tag_name }}.zip .
 
       - name: Upload release assets
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: SurfTimer-${{ github.event.release.tag_name }}.zip
+          files: Kreedz-${{ github.event.release.tag_name }}.zip
