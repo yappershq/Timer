@@ -60,7 +60,9 @@ public sealed class KreedzAnticheat : IModSharpModule
 
     private readonly bool[]  _wasGround  = new bool[PlayerSlot.MaxPlayerCount];
     private readonly float[] _groundTime = new float[PlayerSlot.MaxPlayerCount];
-    private readonly int[]   _perfChain  = new int[PlayerSlot.MaxPlayerCount];
+    private readonly int[]    _perfChain = new int[PlayerSlot.MaxPlayerCount];
+    private readonly Vector[] _lastPos   = new Vector[PlayerSlot.MaxPlayerCount]; // for the telehop guard
+    private readonly int[]    _tpGuard   = new int[PlayerSlot.MaxPlayerCount];    // ticks left ignoring bhops after a teleport
 
     // Nulls detector: a "null" script swaps strafe keys with zero overlap/deadair — a perfectly clean
     // A↔D flip every tick. Humans pass through a both-pressed or neither-pressed tick. Count consecutive
@@ -217,7 +219,20 @@ public sealed class KreedzAnticheat : IModSharpModule
         if (onGround && !_wasGround[slot]) _groundTime[slot] = 0f; // landed
         if (onGround) _groundTime[slot] += TickTime;
 
-        if (!onGround && _wasGround[slot]) // took off
+        // cs2kz bhop guards: don't count perfs while noclipping/on a ladder (MoveType != Walk), or within 4
+        // ticks of a teleport (BHOP_IGNORE_DURATION) — a large one-tick position jump is treated as a telehop.
+        var origin = arg.Pawn.GetAbsOrigin();
+        var dx = origin.X - _lastPos[slot].X;
+        var dy = origin.Y - _lastPos[slot].Y;
+        if (MathF.Sqrt(dx * dx + dy * dy) > 128f) _tpGuard[slot] = 4;
+        else if (_tpGuard[slot] > 0)              _tpGuard[slot]--;
+        _lastPos[slot] = origin;
+
+        if (arg.Pawn.ActualMoveType != MoveType.Walk || _tpGuard[slot] > 0)
+        {
+            _perfChain[slot] = 0;
+        }
+        else if (!onGround && _wasGround[slot]) // took off
         {
             if (_groundTime[slot] <= PerfWindow)
             {
