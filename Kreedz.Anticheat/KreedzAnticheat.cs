@@ -401,33 +401,51 @@ public sealed class KreedzAnticheat : IModSharpModule
 
         if (moves.Length == 0) return;
 
-        float releaseWhen = -1f; UserCommandButtons releaseKey = 0;
+        // Track release/press per axis independently — a MoveLeft-release + Forward-press isn't a counter-strafe.
+        // cs2kz checks BOTH the left/right (A/D) and forward/back (W/S) axes for null-alias counter-strafes.
+        float relWhenLR = -1f, relWhenFB = -1f;
+        UserCommandButtons relKeyLR = 0, relKeyFB = 0;
         var strafed = false;
 
         foreach (ref readonly var m in moves)
         {
-            if (m.Button is not (UserCommandButtons.MoveLeft or UserCommandButtons.MoveRight)) continue;
+            var lr = m.Button is UserCommandButtons.MoveLeft or UserCommandButtons.MoveRight;
+            var fb = m.Button is UserCommandButtons.Forward  or UserCommandButtons.Back;
+            if (!lr && !fb) continue;
             strafed = true;
 
-            if (!m.Pressed) { releaseWhen = m.When; releaseKey = m.Button; continue; }
+            ref var relWhen = ref lr ? ref relWhenLR : ref relWhenFB;
+            ref var relKey  = ref lr ? ref relKeyLR  : ref relKeyFB;
 
-            // A press of the opposite strafe key right after releasing the other = a counter-strafe.
-            if (releaseWhen >= 0f && m.Button != releaseKey)
+            if (!m.Pressed) { relWhen = m.When; relKey = m.Button; continue; }
+
+            // A press of the opposite key of the same axis right after releasing it = a counter-strafe.
+            if (relWhen >= 0f && m.Button != relKey)
             {
-                if (MathF.Abs(m.When - releaseWhen) < SnaptapEpsilon) // same subtick → inhumanly perfect
-                {
-                    if (++_snapChain[slot] >= SnaptapChain)
-                    {
-                        Flag(client, $"snaptap ({_snapChain[slot]} perfect same-subtick counter-strafes)");
-                        _snapChain[slot] = 0;
-                    }
-                }
-                else _snapChain[slot] = 0; // real underlap gap = human
-                releaseWhen = -1f;
+                RegisterCounterStrafe(slot, client, m.When, relWhen);
+                relWhen = -1f;
             }
         }
 
         if (!strafed) _snapChain[slot] = 0;
+    }
+
+    // A same-subtick (release+opposite-press within ~1 subtick) counter-strafe is inhumanly perfect; a run of
+    // them (SnaptapChain) is a null-alias device. A real underlap gap resets the chain (human).
+    private void RegisterCounterStrafe(PlayerSlot slot, IGameClient client, float pressWhen, float releaseWhen)
+    {
+        if (MathF.Abs(pressWhen - releaseWhen) < SnaptapEpsilon)
+        {
+            if (++_snapChain[slot] >= SnaptapChain)
+            {
+                Flag(client, $"snaptap ({_snapChain[slot]} perfect same-subtick counter-strafes)");
+                _snapChain[slot] = 0;
+            }
+        }
+        else
+        {
+            _snapChain[slot] = 0;
+        }
     }
 
     private void OnPlayerSpawnPost(IPlayerSpawnForwardParams @params)
