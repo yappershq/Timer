@@ -36,6 +36,10 @@ internal interface IMapApiSource
     /// Returns false for non-KZ triggers / legacy maps → the caller falls back to targetname matching.
     /// </summary>
     bool TryResolveZone(Vector origin, out KzTriggerType type, out int number);
+
+    /// <summary>Resolve a spawned trigger_multiple to a mapping-API teleport destination (by origin). Returns
+    /// false if it isn't a teleport trigger. resetSpeed = timer_teleport_reset_speed (zero velocity on teleport).</summary>
+    bool TryResolveTeleport(Vector origin, out Vector destination, out bool resetSpeed);
 }
 
 internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
@@ -47,6 +51,7 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
         "classname", "targetname", "origin", "hammerUniqueId", "timer_trigger_type",
         "timer_zone_course_descriptor", "timer_zone_split_number", "timer_zone_checkpoint_number",
         "timer_zone_stage_number", "timer_course_number", "timer_course_name", "timer_course_disable_checkpoint",
+        "timer_teleport_destination", "timer_teleport_reset_speed",
     ];
 
     private readonly InterfaceBridge             _bridge;
@@ -56,6 +61,11 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
     // Parsed KZ zone triggers keyed by their (rounded) origin — correlated to the spawned trigger_multiple
     // in ZoneModule. Rounded to the nearest unit; KZ zones are hundreds of units apart so this is unambiguous.
     private readonly Dictionary<(int X, int Y, int Z), (KzTriggerType Type, int Number)> _zonesByOrigin = new();
+
+    // Teleport triggers (cs2kz KZTRIGGER_TELEPORT): trigger origin → (destination targetname, resetSpeed).
+    // Destinations are any named entity's origin (info_target / info_teleport_destination), resolved on touch.
+    private readonly Dictionary<(int X, int Y, int Z), (string Dest, bool ResetSpeed)> _teleportsByOrigin = new();
+    private readonly Dictionary<string, Vector> _destinations = new(StringComparer.OrdinalIgnoreCase);
 
     // A map loads through MULTIPLE CreateWorldInternal calls (main world + sub-worlds). Clear the accumulated
     // zones only when the map actually changes, else a later sub-world wipes the main world's zones before the
@@ -141,6 +151,8 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
             _lastMap = mapName;
             _registry.Clear();
             _zonesByOrigin.Clear();
+            _teleportsByOrigin.Clear();
+            _destinations.Clear();
         }
 
         ref var lumpHandles = ref pSingleWorld->pWorld->EntityLumps;
@@ -162,6 +174,12 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
 
                 entities++;
                 var dict = ReadKeyValues(kv);
+
+                // Any named entity with an origin is a potential teleport destination (info_target /
+                // info_teleport_destination) — teleport triggers reference these by targetname.
+                if (dict.GetValueOrDefault("targetname", "") is { Length: > 0 } destTarget
+                    && TryParseOrigin(dict.GetValueOrDefault("origin", ""), out var destOrigin))
+                    _destinations[destTarget] = destOrigin;
 
                 // Route by the keys present (robust to classname variants): a course descriptor carries the
                 // timer_course_* keys; a KZ zone/modifier trigger carries timer_trigger_type.
@@ -185,6 +203,13 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
                             var key = OriginKey(zoneOrigin.X, zoneOrigin.Y, zoneOrigin.Z);
                             _zonesByOrigin[key] = (type, ParseZoneNumber(dict, type));
                             _logger.LogInformation("[KZ.MapApi] stored zone {type} originKey=({x},{y},{z})", type, key.X, key.Y, key.Z);
+                        }
+                        else if (type == KzTriggerType.Teleport
+                                 && TryParseOrigin(dict.GetValueOrDefault("origin", ""), out var tpOrigin)
+                                 && dict.GetValueOrDefault("timer_teleport_destination", "") is { Length: > 0 } tpDest)
+                        {
+                            _teleportsByOrigin[OriginKey(tpOrigin.X, tpOrigin.Y, tpOrigin.Z)] =
+                                (tpDest, ParseBool(dict.GetValueOrDefault("timer_teleport_reset_speed", "")));
                         }
                     }
                 }
@@ -225,6 +250,23 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
         number = 0;
         return false;
     }
+
+    public bool TryResolveTeleport(Vector origin, out Vector destination, out bool resetSpeed)
+    {
+        destination = default;
+        resetSpeed  = false;
+
+        if (_teleportsByOrigin.TryGetValue(OriginKey(origin.X, origin.Y, origin.Z), out var tp)
+            && _destinations.TryGetValue(tp.Dest, out destination))
+        {
+            resetSpeed = tp.ResetSpeed;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool ParseBool(string s) => s is "1" || s.Equals("true", StringComparison.OrdinalIgnoreCase);
 
     private static (int X, int Y, int Z) OriginKey(float x, float y, float z)
         => ((int) MathF.Round(x), (int) MathF.Round(y), (int) MathF.Round(z));
