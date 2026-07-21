@@ -15,9 +15,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Sharp.Shared.Hooks;
+using Sharp.Shared.Types;
 using Kreedz.Natives;
 using Kreedz.Modules.MappingApi;
 
@@ -27,6 +29,13 @@ internal interface IMapApiSource
 {
     /// <summary>The parsed mapping-API registry for the current map (courses + zone triggers).</summary>
     MappingApiRegistry Registry { get; }
+
+    /// <summary>
+    /// Resolve a spawned trigger_multiple to its parsed KZ zone by matching origin (modern kz_ maps leave
+    /// zone targetnames empty and describe them purely via keyvalues, so origin is the correlation key).
+    /// Returns false for non-KZ triggers / legacy maps → the caller falls back to targetname matching.
+    /// </summary>
+    bool TryResolveZone(Vector origin, out KzTriggerType type, out int number);
 }
 
 internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
@@ -35,7 +44,7 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
     // course-descriptor vs zone-trigger; the rest are parsed by the registry.
     private static readonly string[] MapApiKeys =
     [
-        "classname", "targetname", "hammerUniqueId", "timer_trigger_type",
+        "classname", "targetname", "origin", "hammerUniqueId", "timer_trigger_type",
         "timer_zone_course_descriptor", "timer_zone_split_number", "timer_zone_checkpoint_number",
         "timer_zone_stage_number", "timer_course_number", "timer_course_name", "timer_course_disable_checkpoint",
     ];
@@ -43,6 +52,10 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
     private readonly InterfaceBridge             _bridge;
     private readonly ILogger<MapApiSourceModule> _logger;
     private readonly MappingApiRegistry          _registry = new();
+
+    // Parsed KZ zone triggers keyed by their (rounded) origin — correlated to the spawned trigger_multiple
+    // in ZoneModule. Rounded to the nearest unit; KZ zones are hundreds of units apart so this is unambiguous.
+    private readonly Dictionary<(int X, int Y, int Z), (KzTriggerType Type, int Number)> _zonesByOrigin = new();
 
     private IRuntimeNativeHook? _hook;
 
@@ -118,6 +131,7 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
             return;
 
         _registry.Clear();
+        _zonesByOrigin.Clear();
 
         ref var lumpHandles = ref pSingleWorld->pWorld->EntityLumps;
 
@@ -148,8 +162,17 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
                 }
                 else if (dict.ContainsKey("timer_trigger_type"))
                 {
-                    if (_registry.TryAddTrigger(dict) != KzTriggerType.Disabled)
+                    var type = _registry.TryAddTrigger(dict);
+                    if (type != KzTriggerType.Disabled)
+                    {
                         zones++;
+
+                        // Store timer zones (Start/End/Split/Checkpoint/Stage) by origin for correlation with
+                        // the spawned trigger_multiple in ZoneModule.
+                        if (KzTrigger.IsTimerZone(type)
+                            && TryParseOrigin(dict.GetValueOrDefault("origin", ""), out var zoneOrigin))
+                            _zonesByOrigin[OriginKey(zoneOrigin.X, zoneOrigin.Y, zoneOrigin.Z)] = (type, ParseZoneNumber(dict, type));
+                    }
                 }
             }
         }
@@ -173,5 +196,56 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
         }
 
         return dict;
+    }
+
+    public bool TryResolveZone(Vector origin, out KzTriggerType type, out int number)
+    {
+        if (_zonesByOrigin.TryGetValue(OriginKey(origin.X, origin.Y, origin.Z), out var z))
+        {
+            type   = z.Type;
+            number = z.Number;
+            return true;
+        }
+
+        type   = KzTriggerType.Disabled;
+        number = 0;
+        return false;
+    }
+
+    private static (int X, int Y, int Z) OriginKey(float x, float y, float z)
+        => ((int) MathF.Round(x), (int) MathF.Round(y), (int) MathF.Round(z));
+
+    private static bool TryParseOrigin(string s, out Vector origin)
+    {
+        origin = default;
+        if (string.IsNullOrEmpty(s))
+            return false;
+
+        var parts = s.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3)
+            return false;
+
+        if (float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x)
+            && float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y)
+            && float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var z))
+        {
+            origin = new Vector(x, y, z);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static int ParseZoneNumber(Dictionary<string, string> dict, KzTriggerType type)
+    {
+        var key = type switch
+        {
+            KzTriggerType.ZoneSplit      => "timer_zone_split_number",
+            KzTriggerType.ZoneCheckpoint => "timer_zone_checkpoint_number",
+            KzTriggerType.ZoneStage      => "timer_zone_stage_number",
+            _                            => null,
+        };
+
+        return key is not null && dict.TryGetValue(key, out var v) && int.TryParse(v, out var n) ? n : 0;
     }
 }

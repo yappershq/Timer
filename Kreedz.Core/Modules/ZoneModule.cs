@@ -27,6 +27,7 @@ using Sharp.Shared.Listeners;
 using Sharp.Shared.Types;
 using Sharp.Shared.Units;
 using Kreedz.Extensions;
+using Kreedz.Modules.MappingApi;
 using Kreedz.Modules.Zone;
 using Kreedz.Shared;
 using Kreedz.Shared.Interfaces;
@@ -70,6 +71,7 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
     private readonly InterfaceBridge      _bridge;
     private readonly ICommandManager      _commandManager;
     private readonly IRequestManager      _requestManager;
+    private readonly IMapApiSource        _mapApi;
 
     private readonly ILogger<ZoneModule> _logger;
     private readonly ListenerHub<IZoneModuleListener> _listenerHub;
@@ -92,6 +94,7 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
     public ZoneModule(InterfaceBridge     bridge,
                       ICommandManager     commandManager,
                       IRequestManager     requestManager,
+                      IMapApiSource       mapApiSource,
                       ILogger<ZoneModule> logger)
     {
         _bridge         = bridge;
@@ -99,6 +102,7 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
         _listenerHub    = new ListenerHub<IZoneModuleListener>(logger);
         _commandManager = commandManager;
         _requestManager = requestManager;
+        _mapApi         = mapApiSource;
         _buildZoneInfo  = new BuildZoneInfo?[PlayerSlot.MaxPlayerCount];
 
         for (var t = 0; t < TimerConstants.MAX_TRACK; t++)
@@ -122,6 +126,17 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
 
         if (_zones.ContainsKey(handle))
         {
+            return;
+        }
+
+        // Modern kz_ maps (cs2kz Mapping API): zones are described by entity keyvalues, not targetnames, so
+        // they have empty names and are invisible to the legacy matcher below. Resolve this trigger by origin
+        // against the parsed mapping-API zones; if it's one, register it with the parsed type + geometry.
+        if (_mapApi.TryResolveZone(entity.GetAbsOrigin(), out var kzType, out var zoneNumber)
+            && AddMappingApiZone(entity, kzType, zoneNumber))
+        {
+            CreateBeam(entity.Handle);
+            entity.SetNetVar("m_flWait", TimerConstants.TickInterval);
             return;
         }
 
@@ -491,6 +506,56 @@ internal partial class ZoneModule : IModule, IZoneModule, IEntityListener, IGame
         }
 
         return _zonesByTrackType[track, typeIndex];
+    }
+
+    // Register a zone resolved from the cs2kz Mapping API (keyvalue-driven) — bypasses the legacy targetname
+    // matcher; type comes from timer_trigger_type. Main course → track 0 (multi-course is a follow-up).
+    private bool AddMappingApiZone(IBaseEntity entity, KzTriggerType kzType, int number)
+    {
+        var type = kzType switch
+        {
+            KzTriggerType.ZoneStart      => EZoneType.Start,
+            KzTriggerType.ZoneEnd        => EZoneType.End,
+            KzTriggerType.ZoneStage      => EZoneType.Stage,
+            KzTriggerType.ZoneCheckpoint => EZoneType.Checkpoint,
+            _                            => EZoneType.Invalid, // ZoneSplit has no EZoneType yet — follow-up
+        };
+
+        if (type == EZoneType.Invalid || entity.GetCollisionProperty() is not { } collision)
+        {
+            return false;
+        }
+
+        var handle = entity.Handle.GetValue();
+        var origin = entity.GetAbsOrigin();
+        origin.Z += 2;
+
+        var info = new ZoneInfo
+        {
+            ZoneType   = type,
+            Corner1    = collision.Mins + origin,
+            Corner2    = collision.Maxs + origin,
+            Origin     = origin,
+            Index      = entity.Index,
+            Prebuilt   = true,
+            TargetName = string.Empty,
+            Track      = 0,
+            Data       = number,
+        };
+
+        if (type == EZoneType.Stage && _currentMaxStages[0] < number)
+        {
+            _currentMaxStages[0] = number;
+        }
+
+        if (!TryAddZoneToIndex(handle, info))
+        {
+            return false;
+        }
+
+        _logger.LogInformation("[KZ.Zone] mapping-API zone: {type}{num} at {o}",
+                               type, number > 0 ? $" #{number}" : "", origin);
+        return true;
     }
 
     private bool AddPrebuiltZone(IBaseEntity entity, string targetName, EZoneType type)
