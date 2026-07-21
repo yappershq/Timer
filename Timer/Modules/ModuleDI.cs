@@ -68,5 +68,8 @@ internal static class ModuleDI
 
         // KZ port: anticheat — invalid client-cvar detector (cs2kz src/kz/anticheat).
         services.ImplSingleton<IAnticheatModule, IModule, AnticheatModule>();
+
+        // KZ port: rotating tips (cs2kz src/kz/tip).
+        services.ImplSingleton<ITipModule, IModule, TipModule>();
     }
 }
