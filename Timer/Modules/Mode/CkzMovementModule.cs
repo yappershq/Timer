@@ -41,6 +41,13 @@ internal sealed class CkzMovementModule : IModule, ICkzMovementModule
     private readonly float[] _lastYaw = new float[PlayerSlot.MaxPlayerCount];
     private readonly float[] _bonus   = new float[PlayerSlot.MaxPlayerCount];
 
+    // Perf/bhop: a jump within PerfWindow of landing keeps your speed (no friction loss).
+    private const float PerfWindow = 0.02f; // cs2kz BH_PERF_WINDOW
+    private readonly bool[]  _wasGround  = new bool[PlayerSlot.MaxPlayerCount];
+    private readonly float[] _groundTime = new float[PlayerSlot.MaxPlayerCount];
+    private readonly float[] _preSpeed   = new float[PlayerSlot.MaxPlayerCount];
+    private readonly float[] _lastHoriz  = new float[PlayerSlot.MaxPlayerCount];
+
     public CkzMovementModule(InterfaceBridge bridge, IModeModule mode, ILogger<CkzMovementModule> logger)
     {
         _bridge = bridge;
@@ -84,6 +91,28 @@ internal sealed class CkzMovementModule : IModule, ICkzMovementModule
             _ratio[slot] = MathF.Max(0f, _ratio[slot] - TickTime / PsMaxTime * DecayRatio);
 
         _bonus[slot] = PsSpeedMax * MathF.Sqrt(_ratio[slot]);
+
+        // ── Perf/bhop: preserve speed across a fast bhop ──────────────────────
+        var vel   = arg.Pawn.GetAbsVelocity();
+        var horiz = MathF.Sqrt(vel.X * vel.X + vel.Y * vel.Y);
+
+        if (onGround && !_wasGround[slot]) // landing: remember the speed we came in with
+        {
+            _preSpeed[slot]   = _lastHoriz[slot];
+            _groundTime[slot] = 0f;
+        }
+        if (onGround)
+            _groundTime[slot] += TickTime;
+
+        if (!onGround && _wasGround[slot] && _groundTime[slot] <= PerfWindow && horiz > 1f && _preSpeed[slot] > horiz)
+        {
+            // A perfect bhop — restore the pre-landing horizontal speed.
+            var scale = _preSpeed[slot] / horiz;
+            arg.Velocity = new Vector(vel.X * scale, vel.Y * scale, vel.Z);
+        }
+
+        _lastHoriz[slot] = horiz;
+        _wasGround[slot] = onGround;
     }
 
     private HookReturnValue<float> OnGetMaxSpeed(IPlayerGetMaxSpeedHookParams @params, HookReturnValue<float> ret)
