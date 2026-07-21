@@ -89,7 +89,7 @@ public sealed class KreedzModeCkz : IModSharpModule
         _modSharp.GetGameData().Register("kreedz-ckz.games");
         _nativeHooks = shared.GetConVarManager().CreateConVar("kz_ckz_native_hooks", true,
             "Enable the native CKZ movement detours (bit-exact path). Set 0 if a sig breaks after a CS2 update.");
-        _detours = new MovementDetours(_hookManager, _logger);
+        _detours = new MovementDetours(_hookManager, shared.GetPhysicsQueryManager(), _logger);
 
         for (var i = 0; i < _angleHistory.Length; i++)
             _angleHistory[i] = [];
@@ -147,6 +147,11 @@ public sealed class KreedzModeCkz : IModSharpModule
             _wasGround[slot] = arg.Pawn.GroundEntityHandle.IsValid();
             return;
         }
+
+        // Register this player's native movement-service pointer → slot so the raw native detours (which
+        // only get a CCSPlayer_MovementServices*) can resolve the player for per-slot state.
+        if (_detours.Installed && arg.Pawn.GetPlayerMovementService() is { } msvc)
+            _detours.Map(msvc.GetAbsPtr(), slot);
 
         var globals   = _modSharp.GetGlobals();
         var frametime = globals.FrameTime;
