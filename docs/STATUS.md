@@ -24,7 +24,7 @@ subsystems and several are partial or not started (see below). See `KZ_PORT_PLAN
 | Ban management | ✅ | `!ban`/`!unban` (@kz/ban) + connect-time kick, persisted. |
 | Preferences | ✅ | Mode/FOV/styles persist across reconnect (subset of cs2kz option keys). |
 | Utilities | ✅ | `goto`, `fov`, `measure`, `pistol`, `tip`, `noclip`. |
-| Localization | 🟡 | i18n infra live (ILocalizerManager + Loc helper + ChatFormat + `kreedz.json`); ModeModule converted. Remaining modules' strings convert module-by-module. |
+| Localization | ✅ | i18n infra + **all 10 modules' interactive messages** localized (40 keys). Only tip rotating-content strings remain inline (minor). en-US shipped; other cultures fall back. |
 
 ## Not started (missing subsystems vs cs2kz)
 
