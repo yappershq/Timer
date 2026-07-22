@@ -8,7 +8,11 @@
  * Detectors implemented:
  *   1. Invalid client-cvar — illegal client convar values that enable cheating (tampered m_yaw,
  *      out-of-range cl_pitchdown/up), checked on spawn.
- *   2. Bhop-hack — an inhuman chain of consecutive perfect bhops (>=25, each takeoff within the perf window).
+ *   2. Bhop-hack + hyperscroll — cs2kz's landing-event window (detectors/bhop.cpp): per-landing jump-input
+ *      counts from the subtick press stream feed three checks — >=25 perfs in the 30-landing window,
+ *      repetitive low jump-pattern at >=18 perfs (macro), and avg pattern >=16 with >0.6 perf ratio
+ *      (hyperscroll). Perfs only count when sv_jump_spam_penalty_time >= tick interval (CKZ sets 0 →
+ *      desubtick 100% perfs are legit there, exactly like cs2kz).
  *   3. Nulls — inhumanly clean counter-strafes (per-axis release/press timing).
  *   4. Snaptap + subtick desubticking — same-subtick counter-strafes / zero-`when` subtick command spam.
  *   5. Autostrafe — scripted high strafes/sec over a rolling window of jumps.
@@ -16,14 +20,10 @@
  * Flags feed the autoban accumulator (`kz_ac_autoban`, default off) and optionally kick (`kz_ac_autokick`).
  * All detection is disabled while `sv_cheats 1` and for fake clients.
  *
- * NOT yet implemented (cs2kz src/kz/anticheat/detectors/bhop.cpp): the perf-RATIO branch — bhop-hack-by-ratio
- * (>=0.9) and hyperscroll (>0.6). Faithful port needs a landing-event window (WINDOW_SIZE 30 / MIN_SAMPLE 20)
- * carrying per-landing jump-input counts (numJumpBefore/After from the subtick press stream) so the
- * `averagePattern` gate can separate a scroll-spammer from a legit perfect bhopper — WITHOUT that gate a
- * ratio-only check false-flags good players, so it's deferred rather than shipped half-done.
  */
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -40,9 +40,31 @@ namespace Kreedz.Anticheat;
 
 public sealed class KreedzAnticheat : IModSharpModule
 {
-    private const int   BhopHackChain = 25;    // cs2kz — perfs in a row that no human can hit
-    private const float PerfWindow    = 0.02f; // cs2kz BH_PERF_WINDOW
-    private const float TickTime      = 1f / 64f;
+    private const float PerfWindow = 0.02f; // cs2kz BH_PERF_WINDOW — <=1 ground tick at 64t = frame-perfect
+    private const float TickTime   = 1f / 64f;
+
+    // cs2kz detectors/bhop.cpp landing-event window constants (tick units where cs2kz uses cmd/time units).
+    private const int   BhopMinAirTicks     = 4;    // MIN_AIR_TIME_FOR_BHOP
+    private const int   BhopIgnoreTicks     = 4;    // BHOP_IGNORE_DURATION (teleport/movetype guard)
+    private const int   JumpPurgeTicks      = 16;   // OLD_JUMP_PURGE_THRESHOLD (0.25s * 64)
+    private const int   BhopMinSamples      = 20;   // MIN_SAMPLE_COUNT
+    private const int   BhopWindowSize      = 30;   // WINDOW_SIZE
+    private const int   PerfsForInfraction  = 25;   // NUM_CONSECUTIVE_PERFS_FOR_INFRACTION
+    private const int   PerfsForPatternCheck = 18;  // NUM_CONSECUTIVE_PERFS_FOR_PATTERN_CHECK
+    private const float HyperscrollPerfRatio = 0.6f; // PERF_RATIO_FOR_HYPERSCROLL_INFRACTION
+    private const float RepetitivePatternRatio = 0.9f; // REPETITIVE_PATTERN_THRESHOLD
+    private const int   LowPatternThreshold  = 4;   // LOW_PATTERN_THRESHOLD
+    private const float HighPatternThreshold = 16f; // HIGH_PATTERN_THRESHOLD
+
+    private struct LandingEvent
+    {
+        public int  Tick;        // cmdNum
+        public bool PendingPerf; // true until a fully-grounded tick passes after the landing
+        public bool Perf;        // hasPerfectBhop
+        public bool Eligible;    // shouldCountTowardsPerfChains — perf with jump-spam penalty active
+        public int  JumpsBefore; // jump presses in the last 0.25s at landing
+        public int  JumpsAfter;  // jump presses in the 0.25s after landing
+    }
 
     private readonly ISharedSystem           _shared;
     private readonly IModSharp               _modSharp;
@@ -57,6 +79,8 @@ public sealed class KreedzAnticheat : IModSharpModule
     private readonly IConVar                 _banThreshold;
     private readonly IConVar                 _banMinutes;
     private readonly IConVar?                _svCheats;
+    private readonly IConVar?                _svAutoBhop;      // sv_autobunnyhopping — no bhop detection while on
+    private readonly IConVar?                _svJumpPenalty;   // sv_jump_spam_penalty_time — perfs only count when >= tick
 
     // Autoban accumulation (cs2kz Infraction→Finalize, simplified): confirmed flags within a fixed window;
     // once the count crosses kz_ac_ban_threshold, ban for kz_ac_ban_minutes. Fixed-window auto-resets, so a
@@ -69,9 +93,19 @@ public sealed class KreedzAnticheat : IModSharpModule
 
     private readonly bool[]  _wasGround  = new bool[PlayerSlot.MaxPlayerCount];
     private readonly float[] _groundTime = new float[PlayerSlot.MaxPlayerCount];
-    private readonly int[]    _perfChain = new int[PlayerSlot.MaxPlayerCount];
     private readonly Vector[] _lastPos   = new Vector[PlayerSlot.MaxPlayerCount]; // for the telehop guard
     private readonly int[]    _tpGuard   = new int[PlayerSlot.MaxPlayerCount];    // ticks left ignoring bhops after a teleport
+    private readonly int[]    _mtGuard   = new int[PlayerSlot.MaxPlayerCount];    // ticks left ignoring bhops after noclip/ladder
+    private readonly int[]    _airTicks  = new int[PlayerSlot.MaxPlayerCount];
+    private readonly List<float>[]        _recentJumps   = NewLists<float>();        // jump-press times (tick + subtick when)
+    private readonly List<LandingEvent>[] _landingEvents = NewLists<LandingEvent>();
+
+    private static List<T>[] NewLists<T>()
+    {
+        var a = new List<T>[PlayerSlot.MaxPlayerCount];
+        for (var i = 0; i < a.Length; i++) a[i] = new List<T>();
+        return a;
+    }
 
     // Nulls detector: a "null" script swaps strafe keys with zero overlap/deadair — a perfectly clean
     // A↔D flip every tick. Humans pass through a both-pressed or neither-pressed tick. Count consecutive
@@ -162,7 +196,9 @@ public sealed class KreedzAnticheat : IModSharpModule
             "Number of flags within the window that triggers an autoban (see kz_ac_autoban).")!;
         _banMinutes = cvar.CreateConVar("kz_ac_ban_minutes", 1440,
             "Autoban duration in minutes (default 1440 = 1 day).")!;
-        _svCheats = cvar.FindConVar("sv_cheats");
+        _svCheats      = cvar.FindConVar("sv_cheats");
+        _svAutoBhop    = cvar.FindConVar("sv_autobunnyhopping");
+        _svJumpPenalty = cvar.FindConVar("sv_jump_spam_penalty_time");
     }
 
     public bool Init()
@@ -187,6 +223,7 @@ public sealed class KreedzAnticheat : IModSharpModule
         if (client.IsValid && !client.IsFakeClient && !(_svCheats?.GetBool() ?? false))
         {
             var slot = client.Slot;
+            ParseCommandForJump(param, slot);
             var left  = param.KeyButtons.HasFlag(UserCommandButtons.MoveLeft);
             var right = param.KeyButtons.HasFlag(UserCommandButtons.MoveRight);
             var dir   = left == right ? 0 : (left ? -1 : 1); // both or neither = 0 (a human transition)
@@ -209,6 +246,104 @@ public sealed class KreedzAnticheat : IModSharpModule
                 _nullsChain[slot]    = 0; // overlap/deadair — human imperfection, reset
                 _lastStrafeDir[slot] = 0;
             }
+        }
+    }
+
+    // cs2kz ParseCommandForJump — collect jump-press times from the subtick stream (or newly-pressed button
+    // when the command carries no subtick moves), bump JumpsAfter on landings within the last 0.25s, and
+    // purge presses older than 0.25s. Presses are taken at face value (faking +jump helps nothing).
+    private unsafe void ParseCommandForJump(IPlayerRunCommandHookParams param, PlayerSlot slot)
+    {
+        var now    = (float) _modSharp.GetGlobals().TickCount;
+        var jumps  = _recentJumps[slot];
+        var events = _landingEvents[slot];
+
+        void AddJump(float when)
+        {
+            jumps.Add(when);
+            var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(events);
+            foreach (ref var e in span)
+                if (e.Tick >= now - JumpPurgeTicks)
+                    e.JumpsAfter++;
+        }
+
+        var n = param.SubtickMoveSize;
+        if (n == 0)
+        {
+            if ((param.ChangedButtons & param.KeyButtons & UserCommandButtons.Jump) != 0)
+                AddJump(now);
+        }
+        else
+        {
+            for (var i = 0; i < n; i++)
+            {
+                var step = param.GetSubtickMove(i);
+                if (step != null && step->Buttons == UserCommandButtons.Jump && step->Pressed)
+                    AddJump(now + step->When);
+            }
+        }
+
+        for (var i = jumps.Count - 1; i >= 0; i--) // purge presses older than 0.25s (no-alloc RemoveAll)
+            if (now - jumps[i] > JumpPurgeTicks)
+                jumps.RemoveAt(i);
+    }
+
+    private readonly Dictionary<int, int> _patternScratch = new(); // reused per check — hooks are main-thread
+
+    // cs2kz CheckLandingEvents — the 30-landing window, three checks: >=25 perfs = bhop-hack; >=18 perfs with
+    // a repetitive low jump-pattern (>=90% same total, < 4) = macro bhop-hack; avg pattern >=16 with >60% perf
+    // ratio over >=20 eligible = hyperscroll (scroll spam lands many jump inputs around every landing).
+    // Only penalty-eligible perfs count (see LandingEvent.Eligible); patterns count any landing with inputs.
+    private void CheckLandingEvents(IGameClient client, PlayerSlot slot)
+    {
+        var events = _landingEvents[slot];
+        while (events.Count > BhopWindowSize) events.RemoveAt(0);
+        if (events.Count < BhopMinSamples) return;
+
+        int numPerfs = 0, eligible = 0, maxChain = 0, curChain = 0;
+        int mostCommon = 0, mostCommonCount = 0, patternOccurrences = 0, weightedSum = 0;
+        _patternScratch.Clear();
+
+        foreach (var e in events)
+        {
+            if (e.JumpsBefore > 0 || e.JumpsAfter > 0)
+            {
+                var pattern = e.JumpsBefore + e.JumpsAfter;
+                var count   = _patternScratch.GetValueOrDefault(pattern) + 1;
+                _patternScratch[pattern] = count;
+                patternOccurrences++;
+                weightedSum += pattern;
+                if (count > mostCommonCount) { mostCommonCount = count; mostCommon = pattern; }
+            }
+
+            if (!e.Eligible) continue;
+            eligible++;
+            if (e.Perf) { numPerfs++; maxChain = Math.Max(maxChain, ++curChain); }
+            else          curChain = 0;
+        }
+
+        var avgPattern = patternOccurrences > 0 ? (float) weightedSum / patternOccurrences : 0f;
+
+        if (maxChain >= PerfsForInfraction)
+        {
+            events.Clear(); // reset the window so one burst doesn't re-flag every tick
+            Flag(client, $"bhop-hack ({maxChain}/{eligible} perfect bhops in the window)");
+            return;
+        }
+
+        if (maxChain >= PerfsForPatternCheck && patternOccurrences > 0
+            && mostCommonCount >= patternOccurrences * RepetitivePatternRatio && mostCommon < LowPatternThreshold)
+        {
+            events.Clear();
+            Flag(client, $"bhop-hack ({mostCommonCount}/{patternOccurrences} occurrences of jump pattern {mostCommon}, avg {avgPattern:F2})");
+            return;
+        }
+
+        var perfRatio = eligible > 0 ? (float) numPerfs / eligible : 0f;
+        if (avgPattern >= HighPatternThreshold && perfRatio > HyperscrollPerfRatio && eligible >= BhopMinSamples)
+        {
+            events.Clear();
+            Flag(client, $"hyperscroll (avg jump pattern {avgPattern:F2} >= {HighPatternThreshold} with {perfRatio * 100f:F0}% perfect ratio ({numPerfs}/{eligible}))");
         }
     }
 
@@ -240,25 +375,49 @@ public sealed class KreedzAnticheat : IModSharpModule
         else if (_tpGuard[slot] > 0)              _tpGuard[slot]--;
         _lastPos[slot] = origin;
 
-        if (arg.Pawn.ActualMoveType != MoveType.Walk || _tpGuard[slot] > 0)
+        // cs2kz OnChangeMoveType guard — landings within 4 ticks of noclip/ladder don't create events.
+        if (arg.Pawn.ActualMoveType != MoveType.Walk) _mtGuard[slot] = BhopIgnoreTicks;
+        else if (_mtGuard[slot] > 0)                  _mtGuard[slot]--;
+
+        var events = _landingEvents[slot];
+
+        if (onGround && !_wasGround[slot]) // landed — cs2kz CreateLandEvent
         {
-            _perfChain[slot] = 0;
-        }
-        else if (!onGround && _wasGround[slot]) // took off
-        {
-            if (_groundTime[slot] <= PerfWindow)
+            if (_airTicks[slot] >= BhopMinAirTicks && _mtGuard[slot] == 0 && _tpGuard[slot] == 0
+                && !(_svAutoBhop?.GetBool() ?? false))
             {
-                if (++_perfChain[slot] >= BhopHackChain)
+                events.Add(new LandingEvent
                 {
-                    Flag(client, $"bhop-hack ({_perfChain[slot]} perfect bhops in a row)");
-                    _perfChain[slot] = 0;
-                }
-            }
-            else
-            {
-                _perfChain[slot] = 0;
+                    Tick        = _modSharp.GetGlobals().TickCount,
+                    PendingPerf = true,
+                    JumpsBefore = _recentJumps[slot].Count,
+                });
             }
         }
+        else if (onGround && _wasGround[slot] && events.Count > 0)
+        {
+            // A fully-grounded tick after the landing — no perf possible anymore (cs2kz pendingPerf clear).
+            var last = events[^1];
+            last.PendingPerf = false;
+            events[^1] = last;
+        }
+        else if (!onGround && _wasGround[slot] && events.Count > 0) // took off — cs2kz OnJump
+        {
+            var last = events[^1];
+            if (last.PendingPerf && _groundTime[slot] <= PerfWindow)
+            {
+                last.Perf = true;
+                // Perfs only count toward chains when the jump-spam penalty is active (>= 1 tick) — with
+                // penalty 0 (CKZ) a desubticking player can legitimately hit 100% perfs (cs2kz shouldCount).
+                last.Eligible = (_svJumpPenalty?.GetFloat() ?? 0.0625f) >= TickTime;
+                events[^1]    = last;
+            }
+        }
+
+        if (!onGround) _airTicks[slot]++;
+        else if (!_wasGround[slot]) _airTicks[slot] = 0; // reset after the landing checks used it
+
+        CheckLandingEvents(client, slot);
 
         DetectAutostrafe(client, slot, arg.Pawn, onGround);
 
@@ -460,6 +619,11 @@ public sealed class KreedzAnticheat : IModSharpModule
     {
         var client = @params.Client;
         if (client.IsFakeClient) return;
+
+        // Fresh bhop window per spawn — also stops a reused slot inheriting the last player's events
+        // (cs2kz clears these in its per-player Reset on connect).
+        _landingEvents[client.Slot].Clear();
+        _recentJumps[client.Slot].Clear();
 
         // Client cvars replicate shortly after spawn — check next frame.
         _modSharp.InvokeFrameAction(() => CheckClient(client));
