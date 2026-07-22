@@ -113,12 +113,13 @@ internal sealed class RecordSaver
         var style = timerInfo.Style;
         var track = timerInfo.Track;
 
-        var records  = _mapCache.GetRecords(style, track);
+        var mode     = KzModes.ToIndex(_modes.GetMode(slot));
+        var records  = _mapCache.GetRecords(style, track, mode);
         var wrRecord = records.Count > 0 ? records[0] : null;
-        var pbRecord = _playerCache.GetRecord(slot, style, track);
+        var pbRecord = _playerCache.GetRecord(slot, style, track, mode, 0);
 
         var recordRequest = CreateRecordRequest(timerInfo, _styleModule, _checkpoint.GetTeleportCount(slot));
-        recordRequest.Mode = KzModes.ToIndex(_modes.GetMode(slot));
+        recordRequest.Mode = mode;
 
         return Task.Run(async () =>
                         {

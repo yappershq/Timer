@@ -66,6 +66,13 @@ internal sealed class PlayerRecordCache
         }
     }
 
+    /// <summary>Mode-filtered PB — a VNL PB must not display as your CKZ PB.</summary>
+    public RunRecord? GetRecord(PlayerSlot slot, int style, int track, int mode, int stage)
+    {
+        var r = GetRecord(slot, style, track, stage);
+        return r is null || r.Mode == mode ? r : null;
+    }
+
     public RunRecord? GetRecord(PlayerSlot slot, int style, int track, int stage = 0)
     {
         if (stage == 0)

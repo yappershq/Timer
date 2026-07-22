@@ -180,6 +180,36 @@ internal sealed class MapRecordCache
         return _mapRecords[style, track];
     }
 
+    /// <summary>Mode-filtered view — PB/WR display must never mix movement modes (record key includes mode).</summary>
+    public IReadOnlyList<RunRecord> GetRecords(int style, int track, int mode)
+    {
+        var all = _mapRecords[style, track];
+        var mixed = false;
+        foreach (var r in all)
+        {
+            if (r.Mode != mode)
+            {
+                mixed = true;
+                break;
+            }
+        }
+
+        if (!mixed)
+        {
+            return all;
+        }
+
+        var filtered = new List<RunRecord>(all.Count);
+        foreach (var r in all)
+        {
+            if (r.Mode == mode)
+            {
+                filtered.Add(r);
+            }
+        }
+        return filtered;
+    }
+
     public IReadOnlyList<RunRecord>? GetStageRecords(int style, int track, int stage) =>
         _stageRecords.GetValueOrDefault((style, track, stage));
 
