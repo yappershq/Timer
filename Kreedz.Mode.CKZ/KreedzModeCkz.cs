@@ -75,6 +75,7 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
     private readonly float[] _rightPreRatio = new float[PlayerSlot.MaxPlayerCount];
 
     private readonly bool[]   _wasGround       = new bool[PlayerSlot.MaxPlayerCount];
+    private readonly bool[]   _perfing         = new bool[PlayerSlot.MaxPlayerCount]; // airborne off a perf (HUD tint)
     private readonly float[]  _landingTime     = new float[PlayerSlot.MaxPlayerCount];
     private readonly float[]  _takeoffTime     = new float[PlayerSlot.MaxPlayerCount];
     private readonly Vector[] _landingVelocity = new Vector[PlayerSlot.MaxPlayerCount];
@@ -201,6 +202,7 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
         if (onGround && !_wasGround[slot])
         {
             _landingTime[slot] = curtime;
+            _perfing[slot]     = false; // landed — no longer perfing until the next perf takeoff
             // The current velocity has already been ground-clipped (Z gone); the remembered last-air
             // velocity is what cs2kz captures at the landing instant, so SlopeFix has the fall speed to redirect.
             _landingVelocity[slot] = _lastAirVelocity[slot];
@@ -333,6 +335,9 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
         var frac = Math.Abs(Math.Round(tick) - tick);
         return frac < 0.001 || Math.Abs(frac - 0.5) < 0.001;
     }
+
+    /// <summary>cs2kz IsPerfing — true while airborne off a perf bhop; drives the HUD speed tint.</summary>
+    public bool IsPerfing(PlayerSlot slot) => _perfing[slot];
 
     /// <summary>cs2kz OnAirMove — cap air wishspeed to SPEED_NORMAL for the engine air-move.</summary>
     public void OnAirMove(PlayerSlot slot, nint ms, nint mv)
@@ -655,6 +660,7 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
     private void ApplyPerf(IPlayerProcessMoveForwardParams arg, PlayerSlot slot, Vector takeoffVelocity)
     {
         var timeOnGround = _takeoffTime[slot] - _landingTime[slot];
+        _perfing[slot] = timeOnGround <= BhPerfWindow; // HUD tint: this airborne jump is a perf
         if (timeOnGround > BhPerfWindow) return;
 
         var landing    = _landingVelocity[slot];

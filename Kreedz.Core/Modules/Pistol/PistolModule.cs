@@ -30,6 +30,18 @@ internal sealed class PistolModule : IModule, IPistolModule
         ["revolver"] = "weapon_revolver", ["r8"] = "weapon_revolver",
     };
 
+    // Team-locked pistols (cs2kz kz_pistol.cpp UpdatePistol) — giving these to the other team needs a
+    // transient m_iTeamNum switch so the engine spawns the correct team-variant model. Everything else
+    // (deagle/p250/cz/revolver/elite) has no team lock and is never switched.
+    private static readonly Dictionary<string, CStrikeTeam> PistolTeams = new(System.StringComparer.OrdinalIgnoreCase)
+    {
+        ["weapon_glock"]        = CStrikeTeam.TE,
+        ["weapon_tec9"]         = CStrikeTeam.TE,
+        ["weapon_fiveseven"]    = CStrikeTeam.CT,
+        ["weapon_hkp2000"]      = CStrikeTeam.CT,
+        ["weapon_usp_silencer"] = CStrikeTeam.CT,
+    };
+
     private readonly InterfaceBridge       _bridge;
     private readonly ICommandManager       _commandManager;
     private readonly ILogger<PistolModule> _logger;
@@ -98,7 +110,24 @@ internal sealed class PistolModule : IModule, IPistolModule
             }
         }
 
-        pawn.GiveNamedItem(classname);
+        // cs2kz UpdatePistol: team-locked pistols need a transient m_iTeamNum switch so the engine gives
+        // the correct team-variant model when handing it to the other team, then the team is restored.
+        // (cs2kz also re-checks the player's econ inventory for a no-team-lock skin match here — skipped,
+        // needs econ inventory access we don't have wired up. // ponytail: no inventory-skin check)
+        var originalTeam = pawn.Team;
+
+        if (PistolTeams.TryGetValue(classname, out var pistolTeam)
+            && originalTeam is CStrikeTeam.TE or CStrikeTeam.CT
+            && originalTeam != pistolTeam)
+        {
+            pawn.TransientChangeTeam(pistolTeam);
+            pawn.GiveNamedItem(classname);
+            pawn.TransientChangeTeam(originalTeam);
+        }
+        else
+        {
+            pawn.GiveNamedItem(classname);
+        }
     }
 
     private void Msg(PlayerSlot slot, string key, params object?[] args)

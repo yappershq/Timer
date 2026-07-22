@@ -47,4 +47,8 @@ public interface IKzMovementMode
     /// this to tick boundaries so subtick-time zone touches can't shave run time (VNL: full ticks only;
     /// CKZ: full + half ticks). Default: always.</summary>
     bool CanTouchTimerZone(PlayerSlot slot) => true;
+
+    /// <summary>cs2kz IsPerfing — is the player currently airborne off a perf (bhop within the perf window)?
+    /// The HUD reads this to tint the speed. Default false (VNL / modes without a perf concept).</summary>
+    bool IsPerfing(PlayerSlot slot) => false;
 }

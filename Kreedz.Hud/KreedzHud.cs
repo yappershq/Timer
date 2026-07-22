@@ -37,6 +37,9 @@ public sealed class KreedzHud : IModSharpModule
 
     private IKzRunService?    _run;
     private IKzModeRegistry?  _modes;
+    private IKzPreferences?   _prefs;
+
+    private const string CompactKey = "compactPanel"; // cs2kz per-player compact-HUD preference
 
     public string DisplayName   => "[Kreedz] HUD";
     public string DisplayAuthor => "yappershq";
@@ -67,6 +70,18 @@ public sealed class KreedzHud : IModSharpModule
         var mgr = _shared.GetSharpModuleManager();
         _run   = mgr.GetOptionalSharpModuleInterface<IKzRunService>(IKzRunService.Identity)?.Instance;
         _modes = mgr.GetOptionalSharpModuleInterface<IKzModeRegistry>(IKzModeRegistry.Identity)?.Instance;
+        _prefs = mgr.GetOptionalSharpModuleInterface<IKzPreferences>(IKzPreferences.Identity)?.Instance;
+
+        // cs2kz `hud compact` — per-player toggle between the full and condensed center panel.
+        mgr.GetOptionalSharpModuleInterface<IKzCommands>(IKzCommands.Identity)?.Instance
+           ?.AddClientChatCommand("hud", OnHudCommand);
+    }
+
+    private ECommandAction OnHudCommand(PlayerSlot slot, StringCommand command)
+    {
+        if (command.ArgCount >= 1 && command.GetArg(1).Equals("compact", StringComparison.OrdinalIgnoreCase))
+            _prefs?.Set(slot, CompactKey, _prefs.Get(slot, CompactKey) == "1" ? "0" : "1");
+        return ECommandAction.Handled;
     }
 
     public void Shutdown()
@@ -109,10 +124,17 @@ public sealed class KreedzHud : IModSharpModule
             timeLine = $"<font class='fontSize-l' color='#ffffff'>{FormatTime(info.Time)}</font>{paused}<br>";
         }
 
-        var html = timeLine +
-                   $"<font class='fontSize-l' color='#8effc1'>{speed}</font> <font class='fontSize-m' color='#c0cbd8'>u/s</font><br>" +
-                   $"<font class='fontSize-m' color='#9fb0c8'>{keys}</font><br>" +
-                   $"<font class='fontSize-s' color='#7f8fa6'>{mode} · CP {cp} · TP {tp}</font>";
+        // cs2kz perf tint: the speed goes green while airborne off a perf bhop (base teal otherwise).
+        var perfing    = _modes?.GetMovementMode(slot)?.IsPerfing(slot) == true;
+        var speedColor = perfing ? "#40ff40" : "#8effc1";
+        var speedLine  = $"<font class='fontSize-l' color='{speedColor}'>{speed}</font> <font class='fontSize-m' color='#c0cbd8'>u/s</font>";
+
+        // Compact panel drops the keys + mode/CP/TP line; full panel shows everything (cs2kz IsCompactPanel).
+        var html = _prefs?.Get(slot, CompactKey) == "1"
+            ? timeLine + speedLine
+            : timeLine + speedLine + "<br>" +
+              $"<font class='fontSize-m' color='#9fb0c8'>{keys}</font><br>" +
+              $"<font class='fontSize-s' color='#7f8fa6'>{mode} · CP {cp} · TP {tp}</font>";
 
         _hudEvent.SetString("loc_token", html);
         _hudEvent.FireToClient(client);
