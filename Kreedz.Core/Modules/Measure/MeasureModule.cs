@@ -1,13 +1,14 @@
 /*
  * yappershq/Timer (KZ) — CS2KZ port
  *
- * KZ `!measure` — 2-point distance tool (cs2kz src/kz/measure). First call marks point A (your feet),
- * second marks B and reports the horizontal + 3D distance, then resets. Text-only for now; the visual
- * beam line between the points is polish that lands with the beam/particle backbone.
+ * KZ `!measure` — 2-point distance tool (cs2kz src/kz/measure). First call marks the point you're AIMING
+ * at (eye trace to the surface, like cs2kz — not your feet), second marks B and reports horizontal + 3D
+ * distance, then resets. Text-only for now; the visual beam line is polish for the beam backbone.
  */
 
 using System;
 using Microsoft.Extensions.Logging;
+using Sharp.Shared.Definition;
 using Sharp.Shared.Enums;
 using Sharp.Shared.Types;
 using Sharp.Shared.Units;
@@ -40,7 +41,7 @@ internal sealed class MeasureModule : IModule, IMeasureModule
 
     private ECommandAction OnCommandMeasure(PlayerSlot slot, StringCommand command)
     {
-        if (Origin(slot) is not { } here)
+        if (AimPoint(slot) is not { } here)
             return ECommandAction.Handled;
 
         if (_pointA[slot] is not { } a)
@@ -61,12 +62,23 @@ internal sealed class MeasureModule : IModule, IMeasureModule
         return ECommandAction.Handled;
     }
 
-    private Vector? Origin(PlayerSlot slot)
-        => _bridge.ClientManager.GetGameClient(slot) is { } client
-           && client.GetPlayerController() is { IsValidEntity: true } controller
-           && controller.GetPlayerPawn() is { IsValidEntity: true, IsAlive: true } pawn
-            ? pawn.GetAbsOrigin()
-            : null;
+    // cs2kz TracePaint-style: eye position → view forward, trace to the surface, that hit is the point.
+    private Vector? AimPoint(PlayerSlot slot)
+    {
+        if (_bridge.ClientManager.GetGameClient(slot) is not { } client
+            || client.GetPlayerController() is not { IsValidEntity: true } controller
+            || controller.GetPlayerPawn() is not { IsValidEntity: true, IsAlive: true } pawn)
+            return null;
+
+        var start = pawn.GetEyePosition();
+        var end   = start + pawn.GetEyeAngles().AnglesToVectorForward() * 8192f;
+
+        var attr = RnQueryShapeAttr.Bullets();
+        attr.SetEntityToIgnore(pawn, 0);
+        var tr = _bridge.PhysicsQueryManager.TraceLine(start, end, attr);
+
+        return tr.DidHit() ? tr.EndPosition : end; // fall back to max range if aiming at the void
+    }
 
     private void Msg(PlayerSlot slot, string key, params object?[] args)
     {

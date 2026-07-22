@@ -866,6 +866,10 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
 
         var pawn = arg.Pawn;
 
+        // Safeguard: never respawn still in noclip (cs2kz clears noclip on death/spawn — anti-exploit).
+        if (pawn is { IsValidEntity: true } && pawn.ActualMoveType == MoveType.NoClip)
+            pawn.SetMoveType(MoveType.Walk);
+
         if (_timerInfo[client.Slot] is { } timerInfo)
         {
             _zoneModule.TeleportToZone(pawn, timerInfo.Track, EZoneType.Start);
