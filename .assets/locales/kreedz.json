@@ -3,7 +3,18 @@
     "en-US": " {{green}}[KZ]{{default}} Current mode: {{lime}}{0}{{default}}. Available: {{lime}}{1}{{default}}. Use {{lime}}!mode <name>{{default}}."
   },
   "Kreedz_Mode_Set": {
-    "en-US": " {{green}}[KZ]{{default}} Mode set to {{lime}}{0}{{default}}."
+    "en-US": " {{green}}[KZ]{{default}} Mode set to {{lime}}{0}{{default}}.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你已切换到 {{lime}}{0}{{default}} 模式.",
+    "ru-RU": " {{green}}[KZ]{{default}} Вы переключились на {{lime}}{0}{{default}} режим.",
+    "pl-PL": " {{green}}[KZ]{{default}} Zmieniłeś tryb gry na {{lime}}{0}{{default}}.",
+    "fi-FI": " {{green}}[KZ]{{default}} Olet vaihtanut {{lime}}{0}{{default}} moodiin.",
+    "sv-SE": " {{green}}[KZ]{{default}} Du har valt {{lime}}{0}{{default}} mode.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви переключилися на {{lime}}{0}{{default}} режим.",
+    "tr-TR": " {{green}}[KZ]{{default}} {{lime}}{0}{{default}} moduna geçtin.",
+    "it-IT": " {{green}}[KZ]{{default}} Hai cambiato la modalità in {{lime}}{0}{{default}}.",
+    "es-ES": " {{green}}[KZ]{{default}} Has cambiado al modo {{lime}}{0}{{default}}.",
+    "de-DE": " {{green}}[KZ]{{default}} Du hast den Modus auf {{lime}}{0}{{default}} wechseln.",
+    "ko-KR": " {{green}}[KZ]{{default}} 이제 {{lime}}{0}{{default}} 모드로 전환되었습니다."
   },
   "Kreedz_Mode_Unknown": {
     "en-US": " {{green}}[KZ]{{default}} {{red}}Unknown mode '{0}'."
@@ -15,31 +26,98 @@
     "en-US": " {{green}}[KZ]{{default}} Finished — {{lime}}{0}{{default}}  [{{gold}}{1}{{default}}]  ({2} tp) {{grey}}(styled — unranked)."
   },
   "Kreedz_Goto_Usage": {
-    "en-US": " {{green}}[KZ]{{default}} Usage: {{lime}}!goto <player>{{default}}."
+    "en-US": " {{green}}[KZ]{{default}} Usage: {{lime}}!goto <player>{{default}}.",
+    "zh-CN": " {{green}}[KZ]{{default}} 用法: {{lime}}!goto <player>{{default}}.",
+    "pl-PL": " {{green}}[KZ]{{default}} Użycie: {{lime}}!goto <player>{{default}}.",
+    "ru-RU": " {{green}}[KZ]{{default}} Применение: {{lime}}!goto <player>{{default}}.",
+    "fi-FI": " {{green}}[KZ]{{default}} Käyttö: {{lime}}!goto <player>{{default}}.",
+    "sv-SE": " {{green}}[KZ]{{default}} Användning: {{lime}}!goto <player>{{default}}.",
+    "uk-UA": " {{green}}[KZ]{{default}} Використання: {{lime}}!goto <player>{{default}}.",
+    "tr-TR": " {{green}}[KZ]{{default}} Kullanım: {{lime}}!goto <player>{{default}}.",
+    "it-IT": " {{green}}[KZ]{{default}} Utilizzo: {{lime}}!goto <player>{{default}}.",
+    "es-ES": " {{green}}[KZ]{{default}} Uso: {{lime}}!goto <player>{{default}}.",
+    "de-DE": " {{green}}[KZ]{{default}} Verwendung: {{lime}}!goto <player>{{default}}.",
+    "ko-KR": " {{green}}[KZ]{{default}} 사용법: {{lime}}!goto <player>{{default}}."
   },
   "Kreedz_Goto_NoMatch": {
-    "en-US": " {{green}}[KZ]{{default}} {{red}}No player matching '{0}'."
+    "en-US": " {{green}}[KZ]{{default}} {{red}}No player matching '{0}'.",
+    "zh-CN": " {{green}}[KZ]{{default}} {{red}}找不到玩家 \"{0}\".",
+    "pl-PL": " {{green}}[KZ]{{default}} {{red}}Nie można znaleźć gracza o nazwie \"{0}\".",
+    "ru-RU": " {{green}}[KZ]{{default}} {{red}}Невозможно найти игрока \"{0}\".",
+    "fi-FI": " {{green}}[KZ]{{default}} {{red}}Pelaajaa nimeltä \"{0}\" ei löytynyt.",
+    "sv-SE": " {{green}}[KZ]{{default}} {{red}}Kunde inte hitta en spelare med namnet \"{0}\".",
+    "uk-UA": " {{green}}[KZ]{{default}} {{red}}Неможливо знайти гравця \"{0}\".",
+    "tr-TR": " {{green}}[KZ]{{default}} {{red}}\"{0}\" isminde bir oyuncu bulunamadı.",
+    "it-IT": " {{green}}[KZ]{{default}} {{red}}Impossibile trovare il giocatore \"{0}\".",
+    "es-ES": " {{green}}[KZ]{{default}} {{red}}No se puede encontrar ningún jugador llamado \"{0}\".",
+    "de-DE": " {{green}}[KZ]{{default}} {{red}}Konnte keinen Spieler mit dem Namen \"{0}\" finden.",
+    "ko-KR": " {{green}}[KZ]{{default}} {{red}}\"{0}\" 해당 플레이어를 찾을 수 없습니다."
   },
   "Kreedz_Fov_Usage": {
     "en-US": " {{green}}[KZ]{{default}} Usage: {{lime}}!fov <{0}-{1}>{{default}}  (current: {{lime}}{2}{{default}})."
   },
   "Kreedz_Fov_Set": {
-    "en-US": " {{green}}[KZ]{{default}} FOV set to {{lime}}{0}{{default}}."
+    "en-US": " {{green}}[KZ]{{default}} FOV set to {{lime}}{0}{{default}}.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你的 FOV 是 {{lime}}{0}{{default}}.",
+    "ru-RU": " {{green}}[KZ]{{default}} Ваш FOV: {{lime}}{0}{{default}}.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ваш FOV — {{lime}}{0}{{default}}.",
+    "es-ES": " {{green}}[KZ]{{default}} Tu campo de visión actual (FOV) es {{lime}}{0}{{default}}.",
+    "ko-KR": " {{green}}[KZ]{{default}} 현재 FOV는 {{lime}}{0}{{default}}입니다."
   },
   "Kreedz_Measure_A": {
-    "en-US": " {{green}}[KZ]{{default}} Measure: point {{lime}}A{{default}} set. Move and {{lime}}!measure{{default}} again for point B."
+    "en-US": " {{green}}[KZ]{{default}} Measure: point {{lime}}A{{default}} set. Move and {{lime}}!measure{{default}} again for point B.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你已设置测量的起始位置.",
+    "pl-PL": " {{green}}[KZ]{{default}} Ustawiłeś pozycję początkową pomiaru.",
+    "ru-RU": " {{green}}[KZ]{{default}} Вы установили первую точку для измерения.",
+    "sv-SE": " {{green}}[KZ]{{default}} Du har ställt in din första position för mätning.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви встановили першу позицію для вимірювання.",
+    "de-DE": " {{green}}[KZ]{{default}} Du hast deine erste Position für die Messung gesetzt.",
+    "es-ES": " {{green}}[KZ]{{default}} Has puesto tu primera punto de medida.",
+    "ko-KR": " {{green}}[KZ]{{default}} 측정을 위한 첫 번째 위치가 설정되었습니다."
   },
   "Kreedz_Measure_Result": {
-    "en-US": " {{green}}[KZ]{{default}} Measure: horizontal {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, height {{lime}}{2}u{{default}}."
+    "en-US": " {{green}}[KZ]{{default}} Measure: horizontal {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, height {{lime}}{2}u{{default}}.",
+    "zh-CN": " {{green}}[KZ]{{default}} 距离: 水平位移 {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, 垂直位移 {{lime}}{2}u{{default}}.",
+    "pl-PL": " {{green}}[KZ]{{default}} Odległość: Pozioma {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, Pionowa {{lime}}{2}u{{default}}.",
+    "ru-RU": " {{green}}[KZ]{{default}} Дистанция: Горизонтальная {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, Вертикальная {{lime}}{2}u{{default}}.",
+    "sv-SE": " {{green}}[KZ]{{default}} Avstånd: Horisontellt {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, Vertikalt {{lime}}{2}u{{default}}.",
+    "uk-UA": " {{green}}[KZ]{{default}} Відстань: Горизонтальна {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, Вертикальна {{lime}}{2}u{{default}}.",
+    "de-DE": " {{green}}[KZ]{{default}} Distance: Horizontal {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, Vertikal {{lime}}{2}u{{default}}.",
+    "es-ES": " {{green}}[KZ]{{default}} Distancia: Horizontal {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, Vertical {{lime}}{2}u{{default}}.",
+    "ko-KR": " {{green}}[KZ]{{default}} 거리: 수평 {{lime}}{0}u{{default}}, 3D {{lime}}{1}u{{default}}, 수직 {{lime}}{2}u{{default}}."
   },
   "Kreedz_Pistol_Usage": {
-    "en-US": " {{green}}[KZ]{{default}} Usage: {{lime}}!pistol <{0}>{{default}}."
+    "en-US": " {{green}}[KZ]{{default}} Usage: {{lime}}!pistol <{0}>{{default}}.",
+    "zh-CN": " {{green}}[KZ]{{default}} 用法: {{lime}}!pistol <{0}>{{default}}.",
+    "pl-PL": " {{green}}[KZ]{{default}} Użycie: {{lime}}!pistol <{0}>{{default}}.",
+    "ru-RU": " {{green}}[KZ]{{default}} Применение: {{lime}}!pistol <{0}>{{default}}.",
+    "uk-UA": " {{green}}[KZ]{{default}} Використання: {{lime}}!pistol <{0}>{{default}}.",
+    "sv-SE": " {{green}}[KZ]{{default}} Användning: {{lime}}!pistol <{0}>{{default}}.",
+    "de-DE": " {{green}}[KZ]{{default}} Anwendung: {{lime}}!pistol <{0}>{{default}}.",
+    "es-ES": " {{green}}[KZ]{{default}} Uso: {{lime}}!pistol <{0}>{{default}}.",
+    "ko-KR": " {{green}}[KZ]{{default}} 사용법: {{lime}}!pistol <{0}>{{default}}."
   },
   "Kreedz_Pistol_Unknown": {
-    "en-US": " {{green}}[KZ]{{default}} {{red}}Unknown pistol '{0}'."
+    "en-US": " {{green}}[KZ]{{default}} {{red}}Unknown pistol '{0}'.",
+    "zh-CN": " {{green}}[KZ]{{default}} {{red}}未知手枪 '{0}'.",
+    "pl-PL": " {{green}}[KZ]{{default}} {{red}}Nieznany pistolet '{0}'.",
+    "ru-RU": " {{green}}[KZ]{{default}} {{red}}Неизвестный пистолет '{0}'.",
+    "uk-UA": " {{green}}[KZ]{{default}} {{red}}Невідомий пістолет '{0}'.",
+    "sv-SE": " {{green}}[KZ]{{default}} {{red}}Okänd pistol '{0}'.",
+    "de-DE": " {{green}}[KZ]{{default}} {{red}}Unbekannte Pistole '{0}'.",
+    "es-ES": " {{green}}[KZ]{{default}} {{red}}Pistola no reconocida '{0}'.",
+    "ko-KR": " {{green}}[KZ]{{default}} {{red}}알 수 없는 권총 '{0}'."
   },
   "Kreedz_Pistol_Set": {
-    "en-US": " {{green}}[KZ]{{default}} Pistol set to {{lime}}{0}{{default}}."
+    "en-US": " {{green}}[KZ]{{default}} Pistol set to {{lime}}{0}{{default}}.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你已将手枪更换为 {{lime}}{0}{{default}}.",
+    "pl-PL": " {{green}}[KZ]{{default}} Zmieniłeś swój pistolet na {{lime}}{0}{{default}}.",
+    "ru-RU": " {{green}}[KZ]{{default}} Вы изменили свой пистолет на {{lime}}{0}{{default}}.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви змінили пістолет на {{lime}}{0}{{default}}.",
+    "sv-SE": " {{green}}[KZ]{{default}} Du har ändrat din pistol till {{lime}}{0}{{default}}.",
+    "de-DE": " {{green}}[KZ]{{default}} Du hast deine Pistole zu {{lime}}{0}{{default}} gewechselt.",
+    "es-ES": " {{green}}[KZ]{{default}} Has cambiado tu pistola a {{lime}}{0}{{default}}.",
+    "ko-KR": " {{green}}[KZ]{{default}} 권총을 {{lime}}{0}{{default}}(으)로 변경했습니다."
   },
   "Kreedz_Style_List": {
     "en-US": " {{green}}[KZ]{{default}} Active styles: {{lime}}{0}{{default}}. Available: {{lime}}{1}{{default}}. Use {{lime}}!style <name>{{default}}."
@@ -48,37 +126,158 @@
     "en-US": " {{green}}[KZ]{{default}} {{red}}Unknown style '{0}'."
   },
   "Kreedz_Style_Enabled": {
-    "en-US": " {{green}}[KZ]{{default}} Style {{lime}}{0}{{default}} enabled."
+    "en-US": " {{green}}[KZ]{{default}} Style {{lime}}{0}{{default}} enabled.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你添加了 {{lime}}{0}{{default}} 风格.",
+    "pl-PL": " {{green}}[KZ]{{default}} Dodano styl {{lime}}{0}{{default}}.",
+    "ru-RU": " {{green}}[KZ]{{default}} Вы добавили стиль {{lime}}{0}{{default}}.",
+    "fi-FI": " {{green}}[KZ]{{default}} Olet lisännyt {{lime}}{0}{{default}} tyylin käyttöön.",
+    "sv-SE": " {{green}}[KZ]{{default}} Du har lagt till {{lime}}{0}{{default}} style.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви додали {{lime}}{0}{{default}} стиль.",
+    "tr-TR": " {{green}}[KZ]{{default}} Seçtiğiniz {{lime}}{0}{{default}} stilini eklediniz.",
+    "it-IT": " {{green}}[KZ]{{default}} Hai aggiunto lo stile {{lime}}{0}{{default}}.",
+    "es-ES": " {{green}}[KZ]{{default}} Añadiste el estilo {{lime}}{0}{{default}}.",
+    "de-DE": " {{green}}[KZ]{{default}} Du hast den Stil {{lime}}{0}{{default}} hinzugefügt.",
+    "ko-KR": " {{green}}[KZ]{{default}} {{lime}}{0}{{default}} 스타일을 추가했습니다."
   },
   "Kreedz_Style_Disabled": {
-    "en-US": " {{green}}[KZ]{{default}} Style {{lime}}{0}{{default}} disabled."
+    "en-US": " {{green}}[KZ]{{default}} Style {{lime}}{0}{{default}} disabled.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你移除了 {{lime}}{0}{{default}} 风格.",
+    "pl-PL": " {{green}}[KZ]{{default}} Usunięto styl {{lime}}{0}{{default}}.",
+    "ru-RU": " {{green}}[KZ]{{default}} Вы удалили стиль {{lime}}{0}{{default}}.",
+    "fi-FI": " {{green}}[KZ]{{default}} Olet poistanut {{lime}}{0}{{default}} tyylin käytöstä.",
+    "sv-SE": " {{green}}[KZ]{{default}} Du har tagit bort {{lime}}{0}{{default}} style.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви видалили {{lime}}{0}{{default}} стиль.",
+    "tr-TR": " {{green}}[KZ]{{default}} Seçtiğiniz {{lime}}{0}{{default}} stilini kaldırdınız.",
+    "it-IT": " {{green}}[KZ]{{default}} Hai rimosso lo stile {{lime}}{0}{{default}}.",
+    "es-ES": " {{green}}[KZ]{{default}} Eliminaste el estilo {{lime}}{0}{{default}}.",
+    "de-DE": " {{green}}[KZ]{{default}} Du hast den Stil {{lime}}{0}{{default}} entfernt.",
+    "ko-KR": " {{green}}[KZ]{{default}} {{lime}}{0}{{default}} 스타일을 제거했습니다."
   },
   "Kreedz_Style_Cleared": {
-    "en-US": " {{green}}[KZ]{{default}} Styles cleared."
+    "en-US": " {{green}}[KZ]{{default}} Styles cleared.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你清除了你的风格.",
+    "pl-PL": " {{green}}[KZ]{{default}} Usunięto Twoje style.",
+    "ru-RU": " {{green}}[KZ]{{default}} Вы очистили свои стили.",
+    "fi-FI": " {{green}}[KZ]{{default}} Olet tyhjentänyt käytössä olleet tyylit.",
+    "sv-SE": " {{green}}[KZ]{{default}} Du har rensat dina styles.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви очистили свої стилі.",
+    "tr-TR": " {{green}}[KZ]{{default}} Stillerinizi temizlediniz.",
+    "it-IT": " {{green}}[KZ]{{default}} Hai eliminato gli stili.",
+    "es-ES": " {{green}}[KZ]{{default}} Eliminaste tus estilos.",
+    "de-DE": " {{green}}[KZ]{{default}} Du hast deine Stile gelöscht.",
+    "ko-KR": " {{green}}[KZ]{{default}} 스타일을 초기화했습니다."
   },
   "Kreedz_Cp_GroundOnly": {
-    "en-US": " {{green}}[KZ]{{default}} {{red}}You can only set a checkpoint on the ground or a ladder."
+    "en-US": " {{green}}[KZ]{{default}} {{red}}You can only set a checkpoint on the ground or a ladder.",
+    "zh-CN": " {{green}}[KZ]{{default}} {{red}}空中无法存点.",
+    "ru-RU": " {{green}}[KZ]{{default}} {{red}}Вы не можете поставить чекпоинт в воздухе.",
+    "pl-PL": " {{green}}[KZ]{{default}} {{red}}Nie możesz ustawić checkpointu będąc w powietrzu.",
+    "fi-FI": " {{green}}[KZ]{{default}} {{red}}Et voi asettaa tallennuspistettä ilmassa.",
+    "sv-SE": " {{green}}[KZ]{{default}} {{red}}Kan inte skapa checkpoint i luften.",
+    "uk-UA": " {{green}}[KZ]{{default}} {{red}}Ви не можете поставити чекпоінт у повітрі.",
+    "tr-TR": " {{green}}[KZ]{{default}} {{red}}Havada kontrol noktası oluşturamazsın.",
+    "it-IT": " {{green}}[KZ]{{default}} {{red}}Non puoi creare un checkpoint in volo.",
+    "es-ES": " {{green}}[KZ]{{default}} {{red}}No puedes crear un checkpoint en el aire.",
+    "de-DE": " {{green}}[KZ]{{default}} {{red}}Du kannst kein Checkpoint in der Luft machen.",
+    "ko-KR": " {{green}}[KZ]{{default}} {{red}}공중에서는 체크포인트를 만들 수 없습니다."
   },
   "Kreedz_Hide_On": {
-    "en-US": " {{green}}[KZ]{{default}} Other players are now {{lime}}hidden{{default}}. Use {{lime}}!hide{{default}} to show them again."
+    "en-US": " {{green}}[KZ]{{default}} Other players are now {{lime}}hidden{{default}}. Use {{lime}}!hide{{default}} to show them again.",
+    "zh-CN": " {{green}}[KZ]{{default}} 已隐藏其他玩家模型.",
+    "ru-RU": " {{green}}[KZ]{{default}} Теперь вы не видите остальных игроков.",
+    "pl-PL": " {{green}}[KZ]{{default}} Inni gracze są ukryci.",
+    "fi-FI": " {{green}}[KZ]{{default}} Nyt et näe muita pelaajia.",
+    "sv-SE": " {{green}}[KZ]{{default}} Nu kan du inte se andra spelare.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви приховали інших гравців.",
+    "tr-TR": " {{green}}[KZ]{{default}} Diğer oyuncuları görmeyi kapattınız.",
+    "it-IT": " {{green}}[KZ]{{default}} Stai nascondendo gli altri giocatori.",
+    "es-ES": " {{green}}[KZ]{{default}} Ahora estás ocultando a los otros jugadores.",
+    "de-DE": " {{green}}[KZ]{{default}} Du versteckst jetzt andere Spieler.",
+    "ko-KR": " {{green}}[KZ]{{default}} 이제 다른 플레이어가 숨겨졌습니다."
   },
   "Kreedz_Hide_Off": {
-    "en-US": " {{green}}[KZ]{{default}} Other players are now {{lime}}visible{{default}}."
+    "en-US": " {{green}}[KZ]{{default}} Other players are now {{lime}}visible{{default}}.",
+    "zh-CN": " {{green}}[KZ]{{default}} 已取消隐藏其他玩家.",
+    "ru-RU": " {{green}}[KZ]{{default}} Теперь вы видите остальных игроков.",
+    "pl-PL": " {{green}}[KZ]{{default}} Inni gracze są teraz widoczni.",
+    "fi-FI": " {{green}}[KZ]{{default}} Näet nyt muita pelaajia.",
+    "sv-SE": " {{green}}[KZ]{{default}} Nu kan du se andra spelare.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви тепер можете бачити інших гравців.",
+    "tr-TR": " {{green}}[KZ]{{default}} Diğer oyuncuları görmeyi açtınız.",
+    "it-IT": " {{green}}[KZ]{{default}} Stai mostrando gli altri giocatori.",
+    "es-ES": " {{green}}[KZ]{{default}} Ahora estás viendo a los otros jugadores.",
+    "de-DE": " {{green}}[KZ]{{default}} Du zeigst jetzt andere Spieler.",
+    "ko-KR": " {{green}}[KZ]{{default}} 이제 다른 플레이어가 표시됩니다."
   },
   "Kreedz_Cp_DisabledHere": {
-    "en-US": " {{green}}[KZ]{{default}} {{red}}Checkpoints are disabled in this area."
+    "en-US": " {{green}}[KZ]{{default}} {{red}}Checkpoints are disabled in this area.",
+    "zh-CN": " {{green}}[KZ]{{default}} {{red}}此区域禁止存点.",
+    "ru-RU": " {{green}}[KZ]{{default}} {{red}}В этой зоне нельзя ставить чекпоинты.",
+    "pl-PL": " {{green}}[KZ]{{default}} {{red}}Nie możesz ustawić checkpointu w tym miejscu.",
+    "fi-FI": " {{green}}[KZ]{{default}} {{red}}Et voi asettaa tallennuspistettä, sillä ne ovat poissa käytöstä tällä alueella.",
+    "sv-SE": " {{green}}[KZ]{{default}} {{red}}Kan inte skapa checkpoint eftersom checkpoints är otillåtna på detta området.",
+    "uk-UA": " {{green}}[KZ]{{default}} {{red}}Ви не можете поставити чекпоінт, так як вони вимкнені у цій зоні.",
+    "tr-TR": " {{green}}[KZ]{{default}} {{red}}Yasaklı bölge olduğu için burada kontrol noktası oluşturamazsın.",
+    "it-IT": " {{green}}[KZ]{{default}} {{red}}La creazione di checkpoint è disabilitata in questa zona.",
+    "es-ES": " {{green}}[KZ]{{default}} {{red}}No puedes usar checkpoint porque los checkpoints están desactivados en esta zona.",
+    "de-DE": " {{green}}[KZ]{{default}} {{red}}Du kannst in diesen Bereich kein Checkpoint setzen.",
+    "ko-KR": " {{green}}[KZ]{{default}} {{red}}이 구역에서는 체크포인트가 비활성화되어 있어 체크포인트를 만들 수 없습니다."
   },
   "Kreedz_Tp_DisabledHere": {
-    "en-US": " {{green}}[KZ]{{default}} {{red}}Teleports are disabled in this area."
+    "en-US": " {{green}}[KZ]{{default}} {{red}}Teleports are disabled in this area.",
+    "zh-CN": " {{green}}[KZ]{{default}} {{red}}在这个位置你不能读点.",
+    "ru-RU": " {{green}}[KZ]{{default}} {{red}}Вы не можете телепортироваться на свои чекпоинты здесь.",
+    "pl-PL": " {{green}}[KZ]{{default}} {{red}}Nie możesz się teleportować w tym miejscu.",
+    "fi-FI": " {{green}}[KZ]{{default}} {{red}}Et voi teleportata, sillä se on poissa käytöstä tällä alueella.",
+    "sv-SE": " {{green}}[KZ]{{default}} {{red}}Du kan inte teleportera till checkpoints på detta området.",
+    "uk-UA": " {{green}}[KZ]{{default}} {{red}}Ви не можете телепортуватися на свої чекпоінти тут.",
+    "tr-TR": " {{green}}[KZ]{{default}} {{red}}Bu bölgede kontrol noktalarına ışınlamazsın.",
+    "it-IT": " {{green}}[KZ]{{default}} {{red}}Da qui non puoi teleportarti ai tuoi checkpoint.",
+    "es-ES": " {{green}}[KZ]{{default}} {{red}}No puedes transportarte a tus checkpoints en esta zona.",
+    "de-DE": " {{green}}[KZ]{{default}} {{red}}Du kannst dich in diesem Bereich nicht zu Deinem Checkpoint teleportieren.",
+    "ko-KR": " {{green}}[KZ]{{default}} {{red}}이 구역에서는 체크포인트로 텔레포트할 수 없습니다."
   },
   "Kreedz_Cp_Set": {
-    "en-US": " {{green}}[KZ]{{default}} Checkpoint {{lime}}{0}{{default}} set."
+    "en-US": " {{green}}[KZ]{{default}} Checkpoint {{lime}}{0}{{default}} set.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你设置了一个存点 (#{{lime}}{0}{{default}}).",
+    "pl-PL": " {{green}}[KZ]{{default}} Ustawiłeś checkpoint (#{{lime}}{0}{{default}}).",
+    "ru-RU": " {{green}}[KZ]{{default}} Вы поставили чекпоинт (#{{lime}}{0}{{default}}).",
+    "fi-FI": " {{green}}[KZ]{{default}} Olet asettanut tallennuspisteen (#{{lime}}{0}{{default}}).",
+    "sv-SE": " {{green}}[KZ]{{default}} Du har skapat en checkpoint (#{{lime}}{0}{{default}}).",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви поставили чекпоінт (#{{lime}}{0}{{default}}).",
+    "tr-TR": " {{green}}[KZ]{{default}} Kontrol noktası oluşturdun (#{{lime}}{0}{{default}}).",
+    "it-IT": " {{green}}[KZ]{{default}} Hai creato un checkpoint (#{{lime}}{0}{{default}}).",
+    "es-ES": " {{green}}[KZ]{{default}} Has creado un checkpoint (#{{lime}}{0}{{default}}).",
+    "de-DE": " {{green}}[KZ]{{default}} Du hast ein Checkpoint gesetzt (#{{lime}}{0}{{default}}).",
+    "ko-KR": " {{green}}[KZ]{{default}} 체크포인트를 만들었습니다 (#{{lime}}{0}{{default}})."
   },
   "Kreedz_Cp_NoneYet": {
-    "en-US": " {{green}}[KZ]{{default}} {{red}}No checkpoint set — use {{lime}}!cp{{red}} first."
+    "en-US": " {{green}}[KZ]{{default}} {{red}}No checkpoint set — use {{lime}}!cp{{red}} first.",
+    "zh-CN": " {{green}}[KZ]{{default}} {{red}}你尚未设置任何存点, 无法传送.",
+    "ru-RU": " {{green}}[KZ]{{default}} {{red}}Вы не можете телепортироваться, потому что у вас отсутствуют чекпоинты.",
+    "pl-PL": " {{green}}[KZ]{{default}} {{red}}Nie możesz się teleportować, ponieważ nie ustawiłeś żadnego checkpointu.",
+    "fi-FI": " {{green}}[KZ]{{default}} {{red}}Et voi teleportata, sillä et ole asettanut tallennuspistettä.",
+    "sv-SE": " {{green}}[KZ]{{default}} {{red}}Du kan inte teleportera eftersom du har inga checkpoints.",
+    "uk-UA": " {{green}}[KZ]{{default}} {{red}}Ви не можете телепортуватися, тому що у вас відсутні чекпоінти.",
+    "tr-TR": " {{green}}[KZ]{{default}} {{red}}Kontrol noktası oluşturmadığın için ışınlamazsın.",
+    "it-IT": " {{green}}[KZ]{{default}} {{red}}Non puoi teleportarti senza prima aver creato un checkpoint.",
+    "de-DE": " {{green}}[KZ]{{default}} {{red}}Du kannst dich nicht teleportieren, da Du keinen Checkpoint festgelegt hast.",
+    "es-ES": " {{green}}[KZ]{{default}} {{red}}No puedes teletransportarte porque no has creado un checkpoint.",
+    "ko-KR": " {{green}}[KZ]{{default}} {{red}}체크포인트를 설정하지 않았기 때문에 텔레포트할 수 없습니다."
   },
   "Kreedz_Cp_NothingUndo": {
-    "en-US": " {{green}}[KZ]{{default}} {{red}}Nothing to undo."
+    "en-US": " {{green}}[KZ]{{default}} {{red}}Nothing to undo.",
+    "zh-CN": " {{green}}[KZ]{{default}} {{red}}你没有可以撤销的存点.",
+    "ru-RU": " {{green}}[KZ]{{default}} {{red}}У вас нет телепортов, которые можно отменить.",
+    "pl-PL": " {{green}}[KZ]{{default}} {{red}}Nie masz żadnych teleportów do cofnięcia.",
+    "fi-FI": " {{green}}[KZ]{{default}} {{red}}Et voi palata takaisin, sillä ei ole teleporttia johon palata.",
+    "sv-SE": " {{green}}[KZ]{{default}} {{red}}Du kan inte ångra din teleportering eftersom du har ingen föregående teleport.",
+    "uk-UA": " {{green}}[KZ]{{default}} {{red}}У вас немає телепортів, які можна скасувати.",
+    "tr-TR": " {{green}}[KZ]{{default}} {{red}}Geri alamazsın çünkü geri alınabilecek ışınlanma noktası yok.",
+    "it-IT": " {{green}}[KZ]{{default}} {{red}}Non ci sono teleport da annullare.",
+    "es-ES": " {{green}}[KZ]{{default}} {{red}}No hay checkpoints para deshacer.",
+    "de-DE": " {{green}}[KZ]{{default}} {{red}}Du kannst nicht zurückkehren, da es keine Teleports gibt zum zurückkehren.",
+    "ko-KR": " {{green}}[KZ]{{default}} {{red}}되돌릴 텔레포트가 없기 때문에 취소할 수 없습니다."
   },
   "Kreedz_Cp_Removed": {
     "en-US": " {{green}}[KZ]{{default}} Removed last checkpoint ({{lime}}{0}{{default}} left)."
@@ -90,10 +289,32 @@
     "en-US": " {{green}}[KZ]{{default}} Checkpoint {{lime}}{0}/{1}{{default}}."
   },
   "Kreedz_Cp_StartSet": {
-    "en-US": " {{green}}[KZ]{{default}} Custom start position set."
+    "en-US": " {{green}}[KZ]{{default}} Custom start position set.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你设置了自定义起点.",
+    "pl-PL": " {{green}}[KZ]{{default}} Ustawiłeś własną pozycję startową.",
+    "ru-RU": " {{green}}[KZ]{{default}} Вы установили свою стартовую позицию.",
+    "fi-FI": " {{green}}[KZ]{{default}} Olet asettanut custom aloituspisteen.",
+    "sv-SE": " {{green}}[KZ]{{default}} Du har skapat din startposition.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви встановили власну стартову позицію.",
+    "tr-TR": " {{green}}[KZ]{{default}} Başlangıç noktası oluşturuldu.",
+    "it-IT": " {{green}}[KZ]{{default}} Zona di partenza custom creata.",
+    "es-ES": " {{green}}[KZ]{{default}} Has establecido tu posición de inicio personalizada.",
+    "de-DE": " {{green}}[KZ]{{default}} Du hast deine custom Startposition festgelegt.",
+    "ko-KR": " {{green}}[KZ]{{default}} 사용자 지정 시작 위치를 설정했습니다."
   },
   "Kreedz_Cp_StartClear": {
-    "en-US": " {{green}}[KZ]{{default}} Custom start position cleared."
+    "en-US": " {{green}}[KZ]{{default}} Custom start position cleared.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你清除了自定义起点.",
+    "pl-PL": " {{green}}[KZ]{{default}} Usunąłeś własną pozycję startową.",
+    "ru-RU": " {{green}}[KZ]{{default}} Вы очистили свою стартовую позицию.",
+    "fi-FI": " {{green}}[KZ]{{default}} Olet tyhjentänyt custom aloituspisteesi.",
+    "sv-SE": " {{green}}[KZ]{{default}} Du har rensat din startposition.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви очистили власну стартову позицію.",
+    "tr-TR": " {{green}}[KZ]{{default}} Başlangıç noktası temizlendi.",
+    "it-IT": " {{green}}[KZ]{{default}} Zona di partenza custom eliminata.",
+    "es-ES": " {{green}}[KZ]{{default}} Has eliminado tu posición de inicio personalizada.",
+    "de-DE": " {{green}}[KZ]{{default}} Du hast deine Startposition gelöscht.",
+    "ko-KR": " {{green}}[KZ]{{default}} 사용자 지정 시작 위치를 지웠습니다."
   },
   "Kreedz_Ban_Usage": {
     "en-US": " {{green}}[KZ]{{default}} Usage: {{lime}}!ban <name|steamid64> <minutes|0=perm> [reason]{{default}}."
@@ -123,10 +344,32 @@
     "en-US": " {{green}}[KZ]{{default}} {{red}}Unban failed — see server log."
   },
   "Kreedz_Tips_On": {
-    "en-US": " {{green}}[KZ]{{default}} Tips enabled."
+    "en-US": " {{green}}[KZ]{{default}} Tips enabled.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你现在会定期在聊天栏中看到随机提示.",
+    "ru-RU": " {{green}}[KZ]{{default}} Теперь иногда вы будете видеть подсказки в чате.",
+    "pl-PL": " {{green}}[KZ]{{default}} Od teraz na czacie będą się czasami wyświetlać wskazówki.",
+    "fi-FI": " {{green}}[KZ]{{default}} Näet nyt satunnaisia vihjeitä chatissäsi määräajoin.",
+    "sv-SE": " {{green}}[KZ]{{default}} Nu kommer du att se tips i chatten med jämna mellanrum.",
+    "uk-UA": " {{green}}[KZ]{{default}} Тепер ви періодично будете бачити випадкові поради та підказки в чаті.",
+    "tr-TR": " {{green}}[KZ]{{default}} Periyodik olarak sohbette rastgele öneriler göreceksin.",
+    "it-IT": " {{green}}[KZ]{{default}} Ogni tanto riceverai dei consigli casuali.",
+    "es-ES": " {{green}}[KZ]{{default}} Ahora verás periódicamente consejos aleatorios en el chat.",
+    "de-DE": " {{green}}[KZ]{{default}} Du wirst jetzt regelmäßig zufällige Tipps im Chat sehen.",
+    "ko-KR": " {{green}}[KZ]{{default}} 이제 주기적으로 채팅에서 랜덤 팁을 볼 수 있습니다."
   },
   "Kreedz_Tips_Off": {
-    "en-US": " {{green}}[KZ]{{default}} Tips disabled."
+    "en-US": " {{green}}[KZ]{{default}} Tips disabled.",
+    "zh-CN": " {{green}}[KZ]{{default}} 你现在不会在聊天栏中看到随机提示.",
+    "ru-RU": " {{green}}[KZ]{{default}} Теперь вы не будете видеть подсказки в чате.",
+    "pl-PL": " {{green}}[KZ]{{default}} Od teraz na czacie nie będą się wyświetlać wskazówki.",
+    "fi-FI": " {{green}}[KZ]{{default}} Et enää näe satunnaisia vihjeitä chatissäsi määräajoin.",
+    "sv-SE": " {{green}}[KZ]{{default}} Nu kommer du inte att se tips i chatten med jämna mellanrum.",
+    "uk-UA": " {{green}}[KZ]{{default}} Ви більше не будете бачити підказок в чаті.",
+    "tr-TR": " {{green}}[KZ]{{default}} Periyodik olarak sohbette rastgele öneriler görmeyeceksin.",
+    "it-IT": " {{green}}[KZ]{{default}} Non riceverai più i consigli casuali.",
+    "es-ES": " {{green}}[KZ]{{default}} No verás más consejos aleatorios en el chat de forma periódica.",
+    "de-DE": " {{green}}[KZ]{{default}} Du wirst jetzt keine zufälligen Tipps mehr im Chat sehen.",
+    "ko-KR": " {{green}}[KZ]{{default}} 이제 채팅에서 주기적으로 랜덤 팁이 표시되지 않습니다."
   },
   "Kreedz_Tip_1": {
     "en-US": " {{green}}[Tip]{{default}} Set a checkpoint with {{lime}}!cp{{default}} and teleport back with {{lime}}!tp{{default}}. A run with 0 teleports is a {{gold}}PRO{{default}} time."
