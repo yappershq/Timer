@@ -41,6 +41,14 @@ internal sealed class MeasureModule : IModule, IMeasureModule
 
     private ECommandAction OnCommandMeasure(PlayerSlot slot, StringCommand command)
     {
+        // cs2kz subcommand: !measure clear/reset drops the pending point A.
+        if (command.ArgCount >= 1 && command.GetArg(1) is "clear" or "reset")
+        {
+            _pointA[slot] = null;
+            Msg(slot, "Kreedz_Measure_Reset");
+            return ECommandAction.Handled;
+        }
+
         if (AimPoint(slot) is not { } here)
             return ECommandAction.Handled;
 

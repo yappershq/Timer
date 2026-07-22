@@ -427,5 +427,8 @@
   },
   "Kreedz_Style_Incompatible": {
     "en-US": " {{green}}[KZ]{{default}} {{red}}Style {{lime}}{0}{{default}} {{red}}can't combine with {{lime}}{1}{{red}}."
+  },
+  "Kreedz_Measure_Reset": {
+    "en-US": " {{green}}[KZ]{{default}} Measurement reset."
   }
 }
