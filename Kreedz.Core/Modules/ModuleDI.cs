@@ -45,6 +45,9 @@ internal static class ModuleDI
         // KZ port: !beam (cs2kz beam) — airborne trail via a reused env_beam segment ring.
         services.AddSingleton<IModule, BeamModule>();
 
+        // KZ port: jumpstats option toggles (cs2kz optionService keys jsFailstats/jsAlways).
+        services.AddSingleton<IModule, OptionsModule>();
+
         services.ImplSingleton<ITimerModule, IModule, TimerModule>();
         services.ImplSingleton<IStyleModule, IModule, StyleModule>();
         services.ImplSingleton<IRecordModule, IModule, RecordModule>();

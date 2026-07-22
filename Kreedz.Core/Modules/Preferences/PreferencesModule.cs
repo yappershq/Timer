@@ -33,7 +33,7 @@ internal interface IPreferencesModule
     event Action<PlayerSlot>? Loaded;
 }
 
-internal sealed class PreferencesModule : IModule, IPreferencesModule, IClientListener
+internal sealed class PreferencesModule : IModule, IPreferencesModule, IClientListener, Shared.Interfaces.IKzPreferences
 {
     private readonly InterfaceBridge            _bridge;
     private readonly IRequestManager            _request;
@@ -53,6 +53,11 @@ internal sealed class PreferencesModule : IModule, IPreferencesModule, IClientLi
 
     public int ListenerVersion  => IClientListener.ApiVersion;
     public int ListenerPriority => 10;
+
+    // Publish read access for external plugins (Jumpstats reads jsFailstats/jsAlways).
+    public void OnPostInit(Microsoft.Extensions.DependencyInjection.ServiceProvider provider)
+        => _bridge.SharpModuleManager.RegisterSharpModuleInterface<Shared.Interfaces.IKzPreferences>(
+            _bridge.Entrypoint, Shared.Interfaces.IKzPreferences.Identity, this);
 
     public bool Init()
     {

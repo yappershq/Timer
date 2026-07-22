@@ -181,6 +181,12 @@
     "de-DE": " {{green}}[KZ]{{default}} {{red}}Du kannst kein Checkpoint in der Luft machen.",
     "ko-KR": " {{green}}[KZ]{{default}} {{red}}공중에서는 체크포인트를 만들 수 없습니다."
   },
+  "Kreedz_Opt_On": {
+    "en-US": " {{green}}[KZ]{{default}} Option {{lime}}{0}{{default}} enabled."
+  },
+  "Kreedz_Opt_Off": {
+    "en-US": " {{green}}[KZ]{{default}} Option {{lime}}{0}{{default}} disabled."
+  },
   "Kreedz_Beam_On": {
     "en-US": " {{green}}[KZ]{{default}} Jump beam {{lime}}enabled{{default}}."
   },

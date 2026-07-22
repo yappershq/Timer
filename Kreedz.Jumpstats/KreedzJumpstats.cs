@@ -83,6 +83,7 @@ public sealed class KreedzJumpstats : IModSharpModule
         return a;
     }
 
+    private IKzPreferences?       _kzPrefs;  // Core preference store — jsFailstats / jsAlways option keys
     private IKzStyleRegistry?     _styles;
     private IKzModeRegistry?      _mode;      // resolved cross-plugin to pick the per-mode tier table
     private IRequestManager?      _request;   // resolved cross-plugin for jump persistence
@@ -151,6 +152,7 @@ public sealed class KreedzJumpstats : IModSharpModule
         _mode      = mgr.GetOptionalSharpModuleInterface<IKzModeRegistry>(IKzModeRegistry.Identity)?.Instance;
         _request   = mgr.GetOptionalSharpModuleInterface<IRequestManager>(IRequestManager.Identity)?.Instance;
         _telemetry = mgr.GetOptionalSharpModuleInterface<IKzMovementTelemetry>(IKzMovementTelemetry.Identity)?.Instance;
+        _kzPrefs   = mgr.GetOptionalSharpModuleInterface<IKzPreferences>(IKzPreferences.Identity)?.Instance;
         if (_telemetry is { } t) t.AirAccelerate += OnAirAccelerate;
     }
 
@@ -285,6 +287,14 @@ public sealed class KreedzJumpstats : IModSharpModule
                 ComputeMiss(slot, origin); // cs2kz AlwaysFailstat miss-recovery for failstat jumps
             }
 
+            // cs2kz jsAlways option: miss + takeoff-edge info on ordinary (non-block) jumps too.
+            if (!_fsValid[slot] && _block[slot] == 0f && _kzPrefs?.Get(slot, "jsAlways") == "1"
+                && _type[slot] is not (JumpType.LadderJump or JumpType.Fall or JumpType.Other))
+            {
+                ComputeMiss(slot, origin);
+                CalcAlwaysEdge(slot);
+            }
+
             if (_styles?.HasAnyStyle(slot) != true) // styled runs don't count (1:1); GetTier gates the distance
                 Report(slot, _type[slot], dist);
         }
@@ -332,7 +342,10 @@ public sealed class KreedzJumpstats : IModSharpModule
         // Failstat report (cs2kz IsFailstat): the jump missed the block — show what it WOULD have been.
         var isFailstat = _fsValid[slot];
         if (isFailstat)
+        {
+            if (_kzPrefs?.Get(slot, "jsFailstats") == "0") return; // cs2kz jsFailstats option (default on)
             distance = _fsDistance[slot];
+        }
 
         var tier = GetTier(slot, type, distance);
         if (tier == DistanceTier.None && !isFailstat) return;
@@ -358,8 +371,10 @@ public sealed class KreedzJumpstats : IModSharpModule
         // cs2kz jump_reporting: block + takeoff-edge (+ landing-edge) only when a real block jump was detected.
         var blockStr = _block[slot] > 0f
             ? $" · {_block[slot]:0} block · {_edge[slot]:0.0} edge · {_landingEdge[slot]:0.0} land"
-            : "";
-        if (isFailstat && _miss[slot] > 0f)
+            : _edge[slot] >= 0f
+                ? $" · {_edge[slot]:0.0} edge" // jsAlways edge on ordinary jumps
+                : "";
+        if (_miss[slot] > 0f && (isFailstat || _block[slot] == 0f))
             blockStr += $" · {_miss[slot]:0.0} miss";
 
         var verdict = isFailstat ? "missed" : $"{tier}!";
@@ -562,6 +577,29 @@ public sealed class KreedzJumpstats : IModSharpModule
             _miss[slot]  = MathF.Abs(crossing - landingPos[coordDist]) - 16f;
             break;
         }
+    }
+
+    // cs2kz CalcAlwaysEdge — takeoff edge for jsAlways when block detection found nothing: trace backward
+    // along the takeoff velocity for the ledge face behind the takeoff point.
+    private void CalcAlwaysEdge(PlayerSlot slot)
+    {
+        if (_physics is null)
+            return;
+
+        var vel       = _takeoffVel[slot];
+        var coordDist = MathF.Abs(vel.X) < MathF.Abs(vel.Y) ? 1 : 0;
+        var distSign  = vel[coordDist] > 0f ? 1 : -1;
+        var takeoff   = _takeoff[slot];
+
+        var end = takeoff;
+        end[coordDist] -= 16f * distSign;
+        end.Z          -= 1f;
+        var start = end;
+        start[coordDist] += 20f * distSign;
+
+        var r = _physics.TraceLineNoPlayers(start, end, WorldMask, CollisionGroupType.Default, TraceQueryFlag.All);
+        if (r.DidHit() && MathF.Abs(r.EndPosition[coordDist] - start[coordDist]) > JsEpsilon)
+            _edge[slot] = MathF.Abs(r.EndPosition[coordDist] - takeoff[coordDist] + (16f - OffsetEpsilon) * distSign);
     }
 
     // Downward point scan for the block's top surface Z (cs2kz FindBlockHeight); NaN on failure.
