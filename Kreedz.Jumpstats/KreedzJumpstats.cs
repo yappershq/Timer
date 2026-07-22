@@ -68,6 +68,21 @@ public sealed class KreedzJumpstats : IModSharpModule
     private readonly float[]  _fsOffset   = new float[PlayerSlot.MaxPlayerCount];
     private readonly Vector[] _prevOrigin = new Vector[PlayerSlot.MaxPlayerCount];
 
+    // Miss stat (cs2kz AlwaysFailstat): per-tick flight positions (pose history, cs2kz caps 512) walked
+    // at landing to find where the arc crossed the target-block plane → how short of the block you were.
+    private const int MaxPoseTicks = 512; // JS_FAILSTATS_MAX_TRACKED_TICKS
+
+    private readonly List<Vector>[] _poses      = BuildPoseBuffers();
+    private readonly Vector[]       _takeoffVel = new Vector[PlayerSlot.MaxPlayerCount];
+    private readonly float[]        _miss       = new float[PlayerSlot.MaxPlayerCount];
+
+    private static List<Vector>[] BuildPoseBuffers()
+    {
+        var a = new List<Vector>[PlayerSlot.MaxPlayerCount];
+        for (var i = 0; i < a.Length; i++) a[i] = new List<Vector>(128);
+        return a;
+    }
+
     private IKzStyleRegistry?     _styles;
     private IKzModeRegistry?      _mode;      // resolved cross-plugin to pick the per-mode tier table
     private IRequestManager?      _request;   // resolved cross-plugin for jump persistence
@@ -193,6 +208,9 @@ public sealed class KreedzJumpstats : IModSharpModule
             _aaCalls[slot].Clear();
             _fsValid[slot]       = false;
             _prevOrigin[slot]    = origin;
+            _takeoffVel[slot]    = vel;
+            _miss[slot]          = 0f;
+            _poses[slot].Clear();
         }
         else if (!onGround && _tracking[slot])
         {
@@ -242,6 +260,8 @@ public sealed class KreedzJumpstats : IModSharpModule
             }
 
             _prevOrigin[slot] = origin;
+            if (_poses[slot].Count < MaxPoseTicks)
+                _poses[slot].Add(origin);
         }
         else if (!_wasOnGround[slot] && onGround && _tracking[slot])
         {
@@ -259,6 +279,10 @@ public sealed class KreedzJumpstats : IModSharpModule
                 _block[slot] = 0f; _edge[slot] = -1f; _landingEdge[slot] = -1f;
                 if (_type[slot] is not (JumpType.LadderJump or JumpType.Fall or JumpType.Other) && dist >= MinBlockDistance)
                     CalcBlockStats(slot, _takeoff[slot], origin);
+            }
+            else
+            {
+                ComputeMiss(slot, origin); // cs2kz AlwaysFailstat miss-recovery for failstat jumps
             }
 
             if (_styles?.HasAnyStyle(slot) != true) // styled runs don't count (1:1); GetTier gates the distance
@@ -335,6 +359,8 @@ public sealed class KreedzJumpstats : IModSharpModule
         var blockStr = _block[slot] > 0f
             ? $" · {_block[slot]:0} block · {_edge[slot]:0.0} edge · {_landingEdge[slot]:0.0} land"
             : "";
+        if (isFailstat && _miss[slot] > 0f)
+            blockStr += $" · {_miss[slot]:0.0} miss";
 
         var verdict = isFailstat ? "missed" : $"{tier}!";
         client.Print(HudPrintChannel.Chat,
@@ -444,6 +470,97 @@ public sealed class KreedzJumpstats : IModSharpModule
             _fsValid[slot]    = true;
             _fsDistance[slot] = rawDist + OffsetUnits;
             _fsOffset[slot]   = crossing.Z - takeoff.Z;
+        }
+    }
+
+    // cs2kz TryFindBlockHeight — 3-step 54u vertical scan for the landing block's surface position
+    // (handles headbanger geometry where the block has a roof).
+    private bool TryFindBlockHeight(Vector position, out Vector result, int coordDist, int distSign)
+    {
+        var start = position;
+        start[coordDist] += distSign;
+        var end = start;
+        start.Z += 54f;
+
+        for (var i = 0; i < 3; i++)
+        {
+            var r = _physics!.TraceLineNoPlayers(start, end, WorldMask, CollisionGroupType.Default, TraceQueryFlag.All);
+            if (r.DidHit() && MathF.Abs(r.EndPosition.Z - start.Z) > JsEpsilon)
+            {
+                result = r.EndPosition;
+                result[coordDist] -= distSign;
+                return true;
+            }
+
+            start.Z += 54f;
+            end.Z   += 53f;
+        }
+
+        result = default;
+        return false;
+    }
+
+    // cs2kz AlwaysFailstat (miss-recovery path): search forward from the landing spot for the target
+    // block, then walk the flight poses for where the arc crossed its surface plane — the horizontal
+    // shortfall to the block face is the miss.
+    private void ComputeMiss(PlayerSlot slot, Vector currentPos)
+    {
+        _miss[slot] = 0f;
+        if (_physics is null || _poses[slot].Count < 2)
+            return;
+
+        var vel       = _takeoffVel[slot];
+        var coordDist = MathF.Abs(vel.X) < MathF.Abs(vel.Y) ? 1 : 0;
+        var distSign  = vel[coordDist] > 0f ? 1 : -1;
+
+        // Tall thin sweep 100u forward to find the block wall (cs2kz traceLongMaxs z=200).
+        var end = currentPos;
+        end[coordDist] += 100f * distSign;
+        var tallHull = new TraceShapeRay(new TraceShapeHull { Mins = default, Maxs = new Vector(0f, 0f, 200f) });
+        var r = _physics.TraceShapeNoPlayers(tallHull, currentPos, end, WorldMask, CollisionGroupType.Default, TraceQueryFlag.All);
+        if (!r.DidHit())
+            return;
+
+        var tracePos = r.EndPosition;
+        tracePos.Z = currentPos.Z;
+
+        if (!TryFindBlockHeight(tracePos, out var landingPos, coordDist, distSign))
+        {
+            // Retry with the short (54u) box like cs2kz — the tall sweep can snag on high geometry.
+            var shortHull = new TraceShapeRay(new TraceShapeHull { Mins = default, Maxs = new Vector(0f, 0f, 54f) });
+            var r2 = _physics.TraceShapeNoPlayers(shortHull, currentPos, end, WorldMask, CollisionGroupType.Default, TraceQueryFlag.All);
+            if (!r2.DidHit())
+                return;
+
+            var tracePos2 = r2.EndPosition;
+            tracePos2.Z = currentPos.Z;
+            if (!TryFindBlockHeight(tracePos2, out landingPos, coordDist, distSign))
+                return;
+        }
+
+        landingPos.Z = _takeoff[slot].Z; // non-ladder: destination block is at takeoff floor Z
+        var referenceZ = landingPos.Z;
+
+        // Newest-first: the last pose still at/above the plane, interpolated with the next one below it.
+        var poses = _poses[slot];
+        for (var i = poses.Count - 1; i >= 0; i--)
+        {
+            if (poses[i].Z < referenceZ)
+                continue;
+
+            if (i + 1 >= poses.Count)
+                break;
+
+            var above = poses[i];
+            var below = poses[i + 1];
+            var dz    = below.Z - above.Z;
+            if (MathF.Abs(dz) < JsEpsilon)
+                break;
+
+            var scale    = (referenceZ - above.Z) / dz;
+            var crossing = above[coordDist] + (below[coordDist] - above[coordDist]) * scale;
+            _miss[slot]  = MathF.Abs(crossing - landingPos[coordDist]) - 16f;
+            break;
         }
     }
 
