@@ -42,6 +42,9 @@ internal static class ModuleDI
         // KZ port: !spec (cs2kz spec) — spectate a player by name (slay-then-switch + observer lock).
         services.AddSingleton<IModule, SpecModule>();
 
+        // KZ port: !beam (cs2kz beam) — airborne trail via a reused env_beam segment ring.
+        services.AddSingleton<IModule, BeamModule>();
+
         services.ImplSingleton<ITimerModule, IModule, TimerModule>();
         services.ImplSingleton<IStyleModule, IModule, StyleModule>();
         services.ImplSingleton<IRecordModule, IModule, RecordModule>();
