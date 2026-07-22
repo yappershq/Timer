@@ -15,9 +15,9 @@
  *     server convar values).
  *   - Modifier: gravity scale per touching tick (reset to 1 when clear), force-duck via DuckOverride,
  *     and the disable-checkpoint/teleport/jumpstats/pause flags exposed for the other modules to query.
+ *   - Force-unduck: m_flLastDuckTime pinned huge + ducking flag cleared per tick (via schema net-var).
  *   - NOT portable yet (needs per-slot server convars ModSharp doesn't expose): enable_slide
- *     (sv_standable_normal/sv_walkable_normal/sv_airaccelerate), jump_impulse factor (sv_jump_impulse/
- *     sv_staminajumpcost), force_unduck (m_flLastDuckTime not exposed).
+ *     (sv_standable_normal/sv_walkable_normal/sv_airaccelerate), jump_impulse factor (sv_jump_impulse/sv_staminajumpcost).
  *
  * State clears on spawn (round restarts respawn triggers with new handles, so stale handles never pin
  * a zone effect across rounds).
@@ -80,6 +80,7 @@ internal sealed unsafe class TriggerModifierModule : IModule, ITriggerModifiers
     private readonly bool[]  _onGround       = new bool[PlayerSlot.MaxPlayerCount];
     private readonly bool[]  _gravityApplied = new bool[PlayerSlot.MaxPlayerCount];
     private readonly bool[]  _duckApplied    = new bool[PlayerSlot.MaxPlayerCount];
+    private readonly bool[]  _unduckApplied  = new bool[PlayerSlot.MaxPlayerCount];
 
     private static Dictionary<uint, T>[] NewDicts<T>()
     {
@@ -477,6 +478,22 @@ internal sealed unsafe class TriggerModifierModule : IModule, ITriggerModifiers
         {
             arg.Service.DuckOverride = false;
             _duckApplied[slot]       = false;
+        }
+
+        // Forced unduck (cs2kz ApplyForcedUnduck): pin the last-duck time huge so the player can't re-duck,
+        // and clear the ducking flag each tick (they can be in a spot that isn't unduckable, e.g. a tunnel).
+        // m_flLastDuckTime is reached via the schema net-var API — the typed field isn't on the interface.
+        var forceUnduck = AnyModifier(slot, static m => m.ForceUnduck);
+        if (forceUnduck)
+        {
+            arg.Service.SetNetVar("m_flLastDuckTime", 100000f);
+            arg.Pawn.Flags &= ~EntityFlags.Ducking;
+            _unduckApplied[slot] = true;
+        }
+        else if (_unduckApplied[slot])
+        {
+            arg.Service.SetNetVar("m_flLastDuckTime", 0f); // cs2kz CancelForcedUnduck
+            _unduckApplied[slot] = false;
         }
     }
 
