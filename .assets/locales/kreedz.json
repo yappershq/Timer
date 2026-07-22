@@ -418,5 +418,11 @@
   },
   "Kreedz_Goto_Running": {
     "en-US": " {{green}}[KZ]{{default}} {{red}}Can't use !goto while the timer is running."
+  },
+  "Kreedz_Cp_ClearedByMap": {
+    "en-US": " {{green}}[KZ]{{default}} Checkpoints cleared by the map."
+  },
+  "Kreedz_Cant_Finish_Cp": {
+    "en-US": " {{green}}[KZ]{{default}} {{red}}Can't finish — you missed a checkpoint."
   }
 }

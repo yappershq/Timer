@@ -52,6 +52,9 @@ internal interface IMapApiSource
 
     /// <summary>Resolve a modifier trigger (gravity/duck/disable-*) by origin.</summary>
     bool TryResolveModifier(Vector origin, out KzMapModifier modifier);
+
+    /// <summary>Resolve a keyvalue-less momentary trigger (ResetCheckpoints / SingleBhopReset) by origin.</summary>
+    bool TryResolveSimpleTrigger(Vector origin, out KzTriggerType type);
 }
 
 // cs2kz KzMapTeleport (kz_mappingapi.h) — the timer_teleport_* keyvalue set, shared by the plain Teleport
@@ -146,6 +149,9 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
     private readonly Dictionary<(int X, int Y, int Z), float>         _antibhopsByOrigin = new();
     private readonly Dictionary<(int X, int Y, int Z), KzMapModifier> _modifiersByOrigin = new();
 
+    // Keyvalue-less momentary triggers (cs2kz KZTRIGGER_RESET_CHECKPOINTS / _SINGLE_BHOP_RESET): just a type.
+    private readonly Dictionary<(int X, int Y, int Z), KzTriggerType> _simpleByOrigin = new();
+
     // A map loads through MULTIPLE CreateWorldInternal calls (main world + sub-worlds). Clear the accumulated
     // zones only when the map actually changes, else a later sub-world wipes the main world's zones before the
     // triggers spawn (that was the bug: the 24-entity sub-world cleared the 2 zones the main world stored).
@@ -235,6 +241,7 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
             _pushesByOrigin.Clear();
             _antibhopsByOrigin.Clear();
             _modifiersByOrigin.Clear();
+            _simpleByOrigin.Clear();
         }
 
         ref var lumpHandles = ref pSingleWorld->pWorld->EntityLumps;
@@ -355,6 +362,11 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
                                 ForceDuck:          ParseBool(dict.GetValueOrDefault("timer_modifier_force_duck", "")),
                                 ForceUnduck:        ParseBool(dict.GetValueOrDefault("timer_modifier_force_unduck", "")));
                         }
+                        else if (type is KzTriggerType.ResetCheckpoints or KzTriggerType.SingleBhopReset
+                                 && TryParseOrigin(dict.GetValueOrDefault("origin", ""), out var simpleOrigin))
+                        {
+                            _simpleByOrigin[OriginKey(simpleOrigin.X, simpleOrigin.Y, simpleOrigin.Z)] = type;
+                        }
                     }
                 }
             }
@@ -420,6 +432,9 @@ internal sealed unsafe class MapApiSourceModule : IModule, IMapApiSource
 
     public bool TryResolveModifier(Vector origin, out KzMapModifier modifier)
         => _modifiersByOrigin.TryGetValue(OriginKey(origin.X, origin.Y, origin.Z), out modifier);
+
+    public bool TryResolveSimpleTrigger(Vector origin, out KzTriggerType type)
+        => _simpleByOrigin.TryGetValue(OriginKey(origin.X, origin.Y, origin.Z), out type);
 
     private static bool ParseBool(string s) => s is "1" || s.Equals("true", StringComparison.OrdinalIgnoreCase);
 

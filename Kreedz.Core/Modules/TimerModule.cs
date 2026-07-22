@@ -91,6 +91,7 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
 
     private readonly IMapApiSource _mapApi;
     private readonly ICheckpointModule _checkpoint;
+    private readonly ITriggerModifiers _triggerMods;
 
     public TimerModule(InterfaceBridge      bridge,
                        IPlayerManager       playerManager,
@@ -101,6 +102,7 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
                        ICommandManager      commandManager,
                        IMapApiSource        mapApiSource,
                        ICheckpointModule    checkpointModule,
+                       ITriggerModifiers    triggerModifiers,
                        ILogger<TimerModule> logger)
     {
         _bridge         = bridge;
@@ -111,6 +113,7 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
         _eventHook      = eventHook;
         _mapApi         = mapApiSource;
         _checkpoint     = checkpointModule;
+        _triggerMods    = triggerModifiers;
         _commandManager = commandManager;
 
         _logger      = logger;
@@ -156,6 +159,9 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
 
         _playerManager.RegisterListener(this);
 
+        // cs2kz reset-checkpoint map trigger: TimerModule owns timer-running + checkpoint access.
+        _triggerMods.ResetCheckpointsRequested += OnResetCheckpointsRequested;
+
         InitCommands();
 
         return true;
@@ -177,6 +183,8 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
         _zoneModule.UnregisterListener(this);
 
         _playerManager.UnregisterListener(this);
+
+        _triggerMods.ResetCheckpointsRequested -= OnResetCheckpointsRequested;
     }
 
     public void OnZoneStartTouch(IZoneInfo info, IPlayerController controller, IPlayerPawn pawn)
@@ -245,6 +253,16 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
 
                 if (timerInfo.IsTimerRunning())
                 {
+                    // cs2kz TimerEnd: refuse to finish a run that skipped checkpoint zones — keep the timer
+                    // running so the player can go back for them (run-integrity: no shortcut-to-end PBs).
+                    if (_zoneModule.CurrentTrackHasCheckpoints(timerInfo.Track)
+                        && timerInfo.Checkpoint < _zoneModule.GetCurrentTrackCheckpointCount(timerInfo.Track))
+                    {
+                        if (_bridge.ClientManager.GetGameClient(controller.PlayerSlot) is { IsFakeClient: false } missCp)
+                            Loc.Chat(_bridge.LocalizerManager, missCp, "Kreedz_Cant_Finish_Cp");
+                        break;
+                    }
+
                     timerInfo.EndVelocity = velocity;
 
                     if (_zoneModule.CurrentTrackHasCheckpoints(timerInfo.Track)
@@ -403,6 +421,19 @@ internal partial class TimerModule : ITimerModule, IModule, IZoneModuleListener,
 
         timerInfo.UpdateInZone(info.ZoneType);
         stageTimer.UpdateInZone(info.ZoneType);
+    }
+
+    // cs2kz KZTRIGGER_RESET_CHECKPOINTS: clear the checkpoint stack (keeping tp count) while the timer runs.
+    private void OnResetCheckpointsRequested(PlayerSlot slot)
+    {
+        if (_timerInfo[slot]?.IsTimerRunning() != true)
+            return;
+
+        if (_checkpoint.GetCheckpointCount(slot) > 0
+            && _bridge.ClientManager.GetGameClient(slot) is { IsFakeClient: false } client)
+            Loc.Chat(_bridge.LocalizerManager, client, "Kreedz_Cp_ClearedByMap");
+
+        _checkpoint.ClearCheckpoints(slot);
     }
 
     /// <summary>The mapping-API course name for a track, or the anonymous Main/Bonus label.</summary>

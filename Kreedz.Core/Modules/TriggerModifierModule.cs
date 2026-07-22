@@ -45,6 +45,10 @@ internal interface ITriggerModifiers
 
     /// <summary>timer_modifier_disable_jumpstats — jumpstats suppressed here.</summary>
     bool JumpstatsDisabled(PlayerSlot slot);
+
+    /// <summary>Fired on entry to a ResetCheckpoints map trigger — TimerModule gates + acts (it owns the
+    /// timer-running state and checkpoint access, avoiding a Checkpoint↔Trigger DI cycle).</summary>
+    event Action<PlayerSlot>? ResetCheckpointsRequested;
 }
 
 internal sealed unsafe class TriggerModifierModule : IModule, ITriggerModifiers
@@ -112,12 +116,17 @@ internal sealed unsafe class TriggerModifierModule : IModule, ITriggerModifiers
         _bridge.HookManager.PlayerSpawnPost.RemoveForward(OnPlayerSpawnPost);
     }
 
+    public event Action<PlayerSlot>? ResetCheckpointsRequested;
+
+    private readonly HashSet<uint>[] _simpleTouched = NewSets(); // reset-checkpoint / single-bhop-reset entry latch
+
     private void Exit(PlayerSlot slot, uint triggerHandle)
     {
         _antibhops[slot].Remove(triggerHandle);
         _modifiers[slot].Remove(triggerHandle);
         _teleports[slot].Remove(triggerHandle);
         _pushTouched[slot].Remove(triggerHandle);
+        _simpleTouched[slot].Remove(triggerHandle);
 
         if (_pushData[slot].Remove(triggerHandle, out var push)
             && (push.Conditions & KzPushCondition.EndTouch) != 0)
@@ -228,6 +237,7 @@ internal sealed unsafe class TriggerModifierModule : IModule, ITriggerModifiers
                 _teleports[slot].Clear();
                 _pushTouched[slot].Clear();
                 _pushData[slot].Clear();
+                _simpleTouched[slot].Clear();
             }
 
             return;
@@ -288,6 +298,22 @@ internal sealed unsafe class TriggerModifierModule : IModule, ITriggerModifiers
                 _pushTouched[slot].Add(handle);
                 if ((push.Conditions & KzPushCondition.StartTouch) != 0)
                     AddPushEvent(slot, handle, push);
+            }
+            else if (_mapApi.TryResolveSimpleTrigger(triggerOrigin, out var simpleType))
+            {
+                // Momentary keyvalue-less triggers — act once on entry (cs2kz OnMappingApiTriggerStartTouchPost).
+                if (_simpleTouched[slot].Add(handle))
+                {
+                    if (simpleType == KzTriggerType.SingleBhopReset)
+                    {
+                        _lastSingleBhop[slot] = 0;
+                        _seqBhops[slot].Clear(); // cs2kz ResetBhopState
+                    }
+                    else // ResetCheckpoints
+                    {
+                        ResetCheckpointsRequested?.Invoke(slot); // TimerModule gates on timer-running + prints
+                    }
+                }
             }
             else
             {
@@ -810,6 +836,7 @@ internal sealed unsafe class TriggerModifierModule : IModule, ITriggerModifiers
         _teleports[slot].Clear();
         _pushTouched[slot].Clear();
         _pushData[slot].Clear();
+        _simpleTouched[slot].Clear();
         _pushEvents[slot].Clear();
         _seqBhops[slot].Clear();
         _lastSingleBhop[slot] = 0;

@@ -32,6 +32,10 @@ internal interface ICheckpointModule
     /// <summary>Reset only the teleport counter, keeping the checkpoint stack (a fresh run starts Pro).</summary>
     void ResetTeleportCount(PlayerSlot slot);
 
+    /// <summary>Clear the checkpoint stack but KEEP the teleport count (cs2kz ResetCheckpoints(keepTp:true) —
+    /// used by the map reset-checkpoint trigger, which mustn't turn a Standard run into a Pro one).</summary>
+    void ClearCheckpoints(PlayerSlot slot);
+
     /// <summary>Server curtime of the player's last cp/tp teleport — for the timer's JustTeleported gate.</summary>
     float GetLastTeleportTime(PlayerSlot slot);
 }
@@ -101,6 +105,12 @@ internal sealed class CheckpointModule : IModule, ICheckpointModule
     }
 
     public void ResetTeleportCount(PlayerSlot slot) => _tpCount[slot] = 0;
+
+    public void ClearCheckpoints(PlayerSlot slot)
+    {
+        _checkpoints[slot].Clear();
+        _cpIndex[slot] = 0; // tpCount preserved (map reset-checkpoint trigger)
+    }
 
     // ── cp / tp ────────────────────────────────────────────────────────────
 
