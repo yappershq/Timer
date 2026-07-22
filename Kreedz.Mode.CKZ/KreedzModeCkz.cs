@@ -83,6 +83,9 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
     // remembered pre-landing velocity instead of the clipped current one.
     private readonly Vector[] _lastAirVelocity = new Vector[PlayerSlot.MaxPlayerCount];
 
+    private const float TickInterval = 1f / 64f;
+    private readonly float[] _lastJumpReleaseTime = new float[PlayerSlot.MaxPlayerCount];
+
     // cs2kz OnSetupMove half-tick input quantization: player subtick inputs snap to {0, 0.5} tick
     // boundaries, and a jump press >0.5 tick after the last release re-arms OldJumpPressed. This is the
     // defining CKZ input feel. (cs2kz ALSO force-injects half-tick subtick moves via the movement
@@ -221,7 +224,8 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
         if (!client.IsValid || client.IsFakeClient || !IsCkz(client.Slot))
             return ret;
 
-        var moves = param.SubtickMoveSize;
+        var tickCount = _modSharp.GetGlobals().TickCount;
+        var moves     = param.SubtickMoveSize;
         for (var i = 0; i < moves; i++)
         {
             var step = param.GetSubtickMove(i);
@@ -232,11 +236,21 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
             if (button is UserCommandButtons.Attack or UserCommandButtons.Attack2 or UserCommandButtons.Reload)
                 continue;
 
-            // NOTE: cs2kz also re-arms the legacy jump latch (m_bOldJumpPressed) on a jump press >0.5 tick
-            // after the last release. That field isn't on the movement-service interface this plugin builds
-            // against (NuGet Sharp.Shared), so the latch re-arm is pending; the when-snap below is the
-            // defining input quantization and stands on its own.
-            step->When = step->When >= 0.5f ? 0.5f : 0f; // the half-tick quantization
+            var when = step->When;
+            // cs2kz OnSetupMove jump-latch re-arm: a jump press landing >0.5 tick after the last release
+            // clears m_bOldJumpPressed so the next jump registers. Reached via the schema net-var API
+            // (the field's typed property isn't on the NuGet interface, but SetNetVar resolves it by name).
+            if (button == UserCommandButtons.Jump && when != 0f)
+            {
+                var inputTime = (tickCount + when - 1) * TickInterval;
+                if (step->Pressed && inputTime - _lastJumpReleaseTime[client.Slot] > 0.5f * TickInterval
+                    && param.Pawn.GetMovementService() is { } ms)
+                    ms.SetNetVar("m_bOldJumpPressed", false);
+                if (!step->Pressed)
+                    _lastJumpReleaseTime[client.Slot] = inputTime;
+            }
+
+            step->When = when >= 0.5f ? 0.5f : 0f; // the half-tick quantization
         }
 
         return ret;
