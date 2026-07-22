@@ -9,7 +9,8 @@
  * vs Bhop, and reports distance + tier (Meh→Wrecker) + per-mode tier tables. The angle stats (sync/
  * badAngles/overlap/deadAir/width) come bit-exact from the Core AACall telemetry (IKzMovementTelemetry,
  * fed by the AirAccelerate detour) via the cs2kz Strafe::End classification, with a per-tick fallback when
- * that telemetry is absent. Still open: edge/block, gain-efficiency % (needs per-call accel), strict validation.
+ * that telemetry is absent. Block/edge on successful landings comes from cs2kz block_tracking.cpp
+ * (CalcBlockStats hull sweeps). Still open: failstat/miss (pose-history), ladder block variant, strict validation.
  */
 
 using System;
@@ -44,6 +45,20 @@ public sealed class KreedzJumpstats : IModSharpModule
     private readonly ILogger<KreedzJumpstats> _logger;
 
     private const float JsEpsilon = 0.03125f; // cs2kz JS_EPSILON
+
+    // Block/edge tracking (cs2kz block_tracking.cpp). Regular jumps only — the LadderJump variant
+    // needs m_vecLadderNormal, which ModSharp doesn't expose yet.
+    private const int   MinBlockDistance = 186;   // JS_MIN_BLOCK_DISTANCE (includes the +32 model offset)
+    private const float OffsetEpsilon    = 0.04f; // JS_OFFSET_EPSILON
+
+    private const InteractionLayers WorldMask = // house world-collision mask (SpawnDuplicator)
+        InteractionLayers.Solid | InteractionLayers.Sky | InteractionLayers.PlayerClip
+        | InteractionLayers.WorldGeometry | InteractionLayers.PhysicsProp;
+
+    private IPhysicsQueryManager? _physics;
+    private readonly float[] _block       = new float[PlayerSlot.MaxPlayerCount];
+    private readonly float[] _edge        = new float[PlayerSlot.MaxPlayerCount];
+    private readonly float[] _landingEdge = new float[PlayerSlot.MaxPlayerCount];
 
     private IKzStyleRegistry?     _styles;
     private IKzModeRegistry?      _mode;      // resolved cross-plugin to pick the per-mode tier table
@@ -102,6 +117,7 @@ public sealed class KreedzJumpstats : IModSharpModule
     {
         _hookManager.PlayerProcessMovePre.InstallForward(OnProcessMovePre);
         _airMaxWishspeed = _shared.GetConVarManager().FindConVar("sv_air_max_wishspeed");
+        _physics         = _shared.GetPhysicsQueryManager();
         return true;
     }
 
@@ -203,6 +219,11 @@ public sealed class KreedzJumpstats : IModSharpModule
             var dy   = origin.Y - _takeoff[slot].Y;
             var dist = MathF.Sqrt(dx * dx + dy * dy) + OffsetUnits;
 
+            // cs2kz EndBlockDistance — block/edge on gap jumps past the minimum block distance.
+            _block[slot] = 0f; _edge[slot] = -1f; _landingEdge[slot] = -1f;
+            if (_type[slot] is not (JumpType.LadderJump or JumpType.Fall or JumpType.Other) && dist >= MinBlockDistance)
+                CalcBlockStats(slot, _takeoff[slot], origin);
+
             if (_styles?.HasAnyStyle(slot) != true) // styled runs don't count (1:1); GetTier gates the distance
                 Report(slot, _type[slot], dist);
         }
@@ -268,11 +289,15 @@ public sealed class KreedzJumpstats : IModSharpModule
         if (_clientManager.GetGameClient(slot) is not { IsFakeClient: false } client) return;
 
         var effStr = hasAa ? $" · {s.GainEff:0}% eff" : "";
+        // cs2kz jump_reporting: block + takeoff-edge (+ landing-edge) only when a real block jump was detected.
+        var blockStr = _block[slot] > 0f
+            ? $" · {_block[slot]:0} block · {_edge[slot]:0.0} edge · {_landingEdge[slot]:0.0} land"
+            : "";
 
         client.Print(HudPrintChannel.Chat,
             $"{label}: {distance:0.0}u — {tier}!  |  {_strafes[slot]} strafes · {sync:0}% sync · {badAng:0}% bad{effStr} · " +
             $"{_maxSpeed[slot]:0} max · {gain:+0;-0} gain · {_maxHeight[slot]:0.0}u height · " +
-            $"{overlap:0}% ovl · {deadair:0}% air · {width:0}° width{ext}");
+            $"{overlap:0}% ovl · {deadair:0}% air · {width:0}° width{ext}{blockStr}");
 
         // Persist the jump (jumpstats DB) — fire-and-forget, degrades to no-op without the request manager.
         if (_request is { } req)
@@ -291,6 +316,109 @@ public sealed class KreedzJumpstats : IModSharpModule
         while (a >  180f) a -= 360f;
         while (a < -180f) a += 360f;
         return a;
+    }
+
+    // ===========================================================================================
+    // Block / edge (cs2kz block_tracking.cpp CalcBlockStats + BlockAreEdgesParallel, GOKZ lineage).
+    // Sweeps a flat line-hull 1u below takeoff level from the gap midpoint toward each side to find
+    // the two block faces, verifies they're parallel axis-aligned walls, then block = face-to-face
+    // gap, edge = takeoff distance to the takeoff-block face, landingEdge = landing past the face.
+    // Uses raw takeoff/landing origins (cs2kz uses ledge-adjusted ones — distbug-sized difference).
+    // ===========================================================================================
+
+    private bool TraceHullPos(Vector start, Vector end, Vector mins, Vector maxs, out Vector position)
+    {
+        var r = _physics!.TraceShapeNoPlayers(new TraceShapeRay(new TraceShapeHull { Mins = mins, Maxs = maxs }),
+            start, end, WorldMask, CollisionGroupType.Default, TraceQueryFlag.All);
+        position = r.EndPosition;
+        return r.DidHit();
+    }
+
+    // Short point trace; true if it hits a wall whose normal is axis-aligned with coordDist.
+    private bool BlockTraceAligned(Vector start, Vector end, int coordDist)
+    {
+        var r = _physics!.TraceLineNoPlayers(start, end, WorldMask, CollisionGroupType.Default, TraceQueryFlag.All);
+        return r.DidHit() && MathF.Abs(MathF.Abs(r.PlaneNormal[coordDist]) - 1f) <= JsEpsilon;
+    }
+
+    // cs2kz BlockAreEdgesParallel — verify the takeoff and landing block faces are parallel walls.
+    private bool BlockAreEdgesParallel(Vector startBlock, Vector endBlock, float deviation, int coordDist, int coordDev)
+    {
+        var offset = startBlock[coordDist] > endBlock[coordDist] ? 0.1f : -0.1f;
+
+        var start = default(Vector);
+        var end   = default(Vector);
+        start[coordDist] = startBlock[coordDist] - offset;
+        start[coordDev]  = startBlock[coordDev] - deviation;
+        start.Z          = startBlock.Z;
+        end[coordDist]   = startBlock[coordDist] + offset;
+        end[coordDev]    = startBlock[coordDev] - deviation;
+        end.Z            = startBlock.Z;
+
+        if (BlockTraceAligned(start, end, coordDist))
+        {
+            start[coordDist] = endBlock[coordDist] + offset;
+            end[coordDist]   = endBlock[coordDist] - offset;
+            if (BlockTraceAligned(start, end, coordDist)) return true;
+            start[coordDist] = startBlock[coordDist] - offset;
+            end[coordDist]   = startBlock[coordDist] + offset;
+        }
+
+        start[coordDev] = startBlock[coordDev] + deviation;
+        end[coordDev]   = startBlock[coordDev] + deviation;
+
+        if (BlockTraceAligned(start, end, coordDist))
+        {
+            start[coordDist] = endBlock[coordDist] + offset;
+            end[coordDist]   = endBlock[coordDist] - offset;
+            if (BlockTraceAligned(start, end, coordDist)) return true;
+        }
+
+        return false;
+    }
+
+    // cs2kz CalcBlockStats (success-landing path; the failstat checkOffset branch is failstat-only).
+    private void CalcBlockStats(PlayerSlot slot, Vector takeoff, Vector landing)
+    {
+        // GetCoordOrientation: dominant horizontal axis + direction of the jump.
+        var coordDist = MathF.Abs(landing.X - takeoff.X) < MathF.Abs(landing.Y - takeoff.Y) ? 1 : 0;
+        var distSign  = landing[coordDist] > takeoff[coordDist] ? 1 : -1;
+        var coordDev  = 1 - coordDist;
+        var deviation = MathF.Abs(landing[coordDev] - takeoff[coordDev]);
+
+        // Midpoint of the jump gap — assumed open air, 1u below takeoff floor so sweeps hit block walls.
+        var middle = default(Vector);
+        middle[coordDist] = (takeoff[coordDist] + landing[coordDist]) / 2f;
+        middle[coordDev]  = (takeoff[coordDev] + landing[coordDev]) / 2f;
+        middle.Z          = takeoff.Z - 1f;
+
+        // Flat sweep line perpendicular to the jump direction, wide enough to catch the blocks despite deviation.
+        var sweepMin = default(Vector);
+        var sweepMax = default(Vector);
+        sweepMin[coordDev] = -(deviation + 16f);
+        sweepMax[coordDev] = deviation + 16f;
+
+        var startBlock = middle;
+        startBlock[coordDist] = takeoff[coordDist] - distSign * 16f; // player bbox puts the wall 16u back
+
+        var endBlock = middle;
+        endBlock[coordDist] = landing[coordDist] + distSign * (16f + OffsetEpsilon);
+
+        if (!TraceHullPos(middle, startBlock, sweepMin, sweepMax, out startBlock)
+            || !TraceHullPos(middle, endBlock, sweepMin, sweepMax, out endBlock))
+            return;
+
+        if (!BlockAreEdgesParallel(startBlock, endBlock, deviation + 32f, coordDist, coordDev))
+            return; // _block already zeroed at landing
+
+        var rawBlock = MathF.Abs(endBlock[coordDist] - startBlock[coordDist]);
+        var block    = MathF.Round(rawBlock);
+        if (block < MinBlockDistance) return;
+
+        _block[slot] = block;
+        // The trace stops OffsetEpsilon units in front of the actual block face; compensate.
+        _edge[slot]        = MathF.Abs(startBlock[coordDist] - takeoff[coordDist] + (16f - OffsetEpsilon) * distSign);
+        _landingEdge[slot] = (landing[coordDist] - endBlock[coordDist]) * distSign + 16f;
     }
 
     private readonly record struct StrafeStats(
