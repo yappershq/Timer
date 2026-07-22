@@ -10,6 +10,16 @@
             "refs": {
                 "strings": []
             }
+        },
+        // tier0 dynamic export `uint64 _MakeGlobalSymbol(const char*)` — sig taken from the live
+        // libtier0.so prologue (rip-relative displacement + jz offsets wildcarded); unique match.
+        "_MakeGlobalSymbol": {
+            "library": "tier0",
+            "windows": "40 53 48 83 EC ? 48 8B D9 E8",
+            "linux": "55 48 89 E5 41 57 41 56 41 55 41 54 49 89 FC 53 48 81 EC C8 00 00 00 0F B6 05 ? ? ? ? 84 C0 74 ? 4D 85 E4 74 ?",
+            "refs": {
+                "strings": []
+            }
         }
     }
 }

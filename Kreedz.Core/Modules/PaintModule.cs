@@ -36,10 +36,15 @@ internal sealed unsafe class PaintModule : IModule
     {
         try
         {
-            _bridge.ModSharp.GetGameData().Register("kreedz-paint.games");
-            _fnDecalTrace = (delegate* unmanaged<void*, ulong*, float, void>) _bridge.ModSharp.GetGameData().GetAddress("DecalTrace");
+            var gameData = _bridge.ModSharp.GetGameData();
+            gameData.Register("kreedz-paint.games");
 
-            var makeSymbol = (delegate* unmanaged<byte*, ulong>) _bridge.Modules.Tier0.FindFunction("_MakeGlobalSymbol");
+            _fnDecalTrace = (delegate* unmanaged<void*, ulong*, float, void>) gameData.GetAddress("DecalTrace");
+            _logger.LogInformation("[KZ.Paint] DecalTrace resolved: {Ok}", _fnDecalTrace != null);
+
+            var makeSymbol = (delegate* unmanaged<byte*, ulong>) gameData.GetAddress("_MakeGlobalSymbol");
+            _logger.LogInformation("[KZ.Paint] _MakeGlobalSymbol resolved: {Ok}", makeSymbol != null);
+
             if (makeSymbol != null)
             {
                 var name = "paint\0"u8;
