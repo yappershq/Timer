@@ -76,6 +76,11 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
     private readonly float[]  _landingTime     = new float[PlayerSlot.MaxPlayerCount];
     private readonly float[]  _takeoffTime     = new float[PlayerSlot.MaxPlayerCount];
     private readonly Vector[] _landingVelocity = new Vector[PlayerSlot.MaxPlayerCount];
+    // Last airborne velocity — captured every air tick so it still carries the fall Z. cs2kz's SlopeFix
+    // reads landingVelocity at the landing instant (before the engine ground-clip zeroes Z); our
+    // ProcessMovePre only sees the transition one tick later, post-clip, so we feed SlopeFix this
+    // remembered pre-landing velocity instead of the clipped current one.
+    private readonly Vector[] _lastAirVelocity = new Vector[PlayerSlot.MaxPlayerCount];
 
     // slopefix per-player state (the native detours only get a CCSPlayer_MovementServices*; Core resolves
     // the slot and hands it to us, so no {ms->slot} map is needed here anymore — Core owns that).
@@ -173,14 +178,23 @@ public sealed unsafe class KreedzModeCkz : IModSharpModule, IKzMovementMode
 
         if (onGround && !_wasGround[slot])
         {
-            _landingTime[slot]     = curtime;
-            _landingVelocity[slot] = velocity;
+            _landingTime[slot] = curtime;
+            // The current velocity has already been ground-clipped (Z gone); the remembered last-air
+            // velocity is what cs2kz captures at the landing instant, so SlopeFix has the fall speed to redirect.
+            _landingVelocity[slot] = _lastAirVelocity[slot];
             SlopeFix(arg, slot); // cs2kz OnStartTouchGround → SlopeFix: preserve speed landing on a downward ramp
         }
         else if (!onGround && _wasGround[slot])
         {
-            _takeoffTime[slot] = curtime;
+            // cs2kz RegisterTakeoff: takeoffTime = curtime - frametime (the takeoff happened at the start of
+            // the tick, not now). This one-frame shift is what makes a frame-perfect bhop score timeOnGround 0.
+            _takeoffTime[slot]      = curtime - frametime;
+            _lastAirVelocity[slot]  = velocity; // takeoff tick — seed the air-velocity memory
             ApplyPerf(arg, slot, velocity);
+        }
+        else if (!onGround)
+        {
+            _lastAirVelocity[slot] = velocity; // keep the freshest airborne velocity (fall Z intact)
         }
 
         CalcPrestrafe(slot, arg.Pawn.GetAbsVelocity(), onGround, frametime, curtime);
